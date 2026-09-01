@@ -11,11 +11,17 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 ON_STOP = os.path.join(REPO_ROOT, "hooks", "on_stop.py")
 CHECK_AND_SUMMARIZE = os.path.join(REPO_ROOT, "hooks", "check_and_summarize.py")
+
+# Detection/locking is also exercised in-process (not just via subprocess) so these
+# tests don't need to spin up a real `claude -p` call to have something to observe.
+sys.path.insert(0, os.path.join(REPO_ROOT, "hooks"))
+import check_and_summarize  # noqa: E402
 
 
 def run_hook(script, payload, env_overrides):
@@ -117,21 +123,8 @@ class HookFeedbackLoopTest(TempDataDir):
 
 
 class CheckAndSummarizeTest(TempDataDir):
-    def test_detects_unsummarized_past_dates_and_skips_today(self):
-        data_root = os.path.join(self.tmp, "data")
-        os.makedirs(os.path.join(data_root, "2026-08-27"))
-        os.makedirs(os.path.join(data_root, "2026-08-28"))
-        today = datetime.date.today().isoformat()
-        os.makedirs(os.path.join(data_root, today))
-
-        proc = run_hook(CHECK_AND_SUMMARIZE, {}, self.data_env())
-        self.assertEqual(proc.returncode, 0, proc.stderr)
-
-        with open(os.path.join(self.tmp, ".debug.log"), encoding="utf-8") as fh:
-            content = fh.read()
-        self.assertIn("worklog: 2026-08-27 is unsummarized", content)
-        self.assertIn("worklog: 2026-08-28 is unsummarized", content)
-        self.assertNotIn("worklog: %s is unsummarized" % today, content)
+    """The end-to-end subprocess path, for cases with nothing to summarize
+    (so no real `claude -p` call happens)."""
 
     def test_already_summarized_date_is_left_alone(self):
         data_root = os.path.join(self.tmp, "data")
@@ -144,16 +137,52 @@ class CheckAndSummarizeTest(TempDataDir):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertFalse(os.path.exists(os.path.join(self.tmp, ".debug.log")))
 
-    def test_stale_lock_does_not_block_forever(self):
+    def test_empty_pending_date_is_a_silent_no_op(self):
+        # a date folder with no captured sessions in it (nothing ever happened that day)
         os.makedirs(os.path.join(self.tmp, "data", "2026-08-27"))
-        with open(os.path.join(self.tmp, ".lock"), "w", encoding="utf-8") as fh:
-            json.dump({"pid": 999999, "started_at": 0}, fh)  # epoch -- ancient, must be treated as stale
-
         proc = run_hook(CHECK_AND_SUMMARIZE, {}, self.data_env())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        with open(os.path.join(self.tmp, ".debug.log"), encoding="utf-8") as fh:
-            content = fh.read()
-        self.assertIn("2026-08-27", content)
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".debug.log")))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".lock")))  # released, or never truly needed
+
+
+class CheckAndSummarizeUnitTest(TempDataDir):
+    """Direct tests of the detection/locking logic -- no subprocess, no `claude -p` call."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = mock.patch.dict(os.environ, {"CLAUDE_PLUGIN_DATA": self.tmp})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_detects_unsummarized_past_dates_and_skips_today(self):
+        data_root = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(data_root, "2026-08-27"))
+        os.makedirs(os.path.join(data_root, "2026-08-28"))
+        today = datetime.date.today().isoformat()
+        os.makedirs(os.path.join(data_root, today))
+
+        self.assertEqual(check_and_summarize.find_unsummarized_dates(), ["2026-08-27", "2026-08-28"])
+
+    def test_already_summarized_date_is_excluded(self):
+        data_root = os.path.join(self.tmp, "data")
+        os.makedirs(os.path.join(data_root, "2026-08-27"))
+        os.makedirs(os.path.join(self.tmp, "notes"))
+        with open(os.path.join(self.tmp, "notes", "2026-08-27.md"), "w", encoding="utf-8") as fh:
+            fh.write("already done")
+
+        self.assertEqual(check_and_summarize.find_unsummarized_dates(), [])
+
+    def test_stale_lock_is_overridden(self):
+        with open(os.path.join(self.tmp, ".lock"), "w", encoding="utf-8") as fh:
+            json.dump({"pid": 999999, "started_at": 0}, fh)  # epoch -- ancient, must be treated as stale
+        self.assertTrue(check_and_summarize.acquire_lock())
+
+    def test_fresh_lock_blocks_a_second_instance(self):
+        self.assertTrue(check_and_summarize.acquire_lock())
+        self.assertFalse(check_and_summarize.acquire_lock())
+        check_and_summarize.release_lock()
+        self.assertTrue(check_and_summarize.acquire_lock())
 
 
 if __name__ == "__main__":

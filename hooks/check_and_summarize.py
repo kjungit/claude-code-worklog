@@ -66,14 +66,17 @@ def release_lock():
 
 
 def run_summarization(dates):
-    """Detection + locking lands here; the Map/Reduce pipeline itself is a follow-up change.
-
-    For now this just records what's waiting, so the plumbing (hook
-    registration, lock, reentry guard) can be exercised end to end before
-    the `claude -p` calls exist.
+    """Runs Map/Reduce for each pending date. A date that fails is simply left
+    unsummarized -- it will be picked up again on the next SessionStart
+    (docs 4.2 step 4), and any sessions that already succeeded stay cached.
     """
+    from summarize import summarize_date
+
     for date in dates:
-        debug_log.log("worklog: %s is unsummarized (summarization pipeline not yet implemented)" % date)
+        try:
+            summarize_date(date)
+        except Exception as exc:  # one bad date must not stop the rest
+            debug_log.log("worklog: summarizing %s raised: %r" % (date, exc))
 
 
 def main():
