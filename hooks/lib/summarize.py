@@ -12,6 +12,7 @@ import json
 import os
 
 import debug_log
+import search_index
 from atomic import read_json, write_json_atomic
 from claude_invoke import ClaudeInvokeError, invoke_claude, strip_code_fence
 from git_info import get_commits_for_date
@@ -258,4 +259,11 @@ def summarize_date(date):
     os.makedirs(notes_dir(), exist_ok=True)
     with open(note_path(date), "w", encoding="utf-8") as fh:
         fh.write(content)
+
+    for summary in summaries:
+        try:
+            search_index.upsert_summary(date, summary.get("session_id"), summary)
+        except Exception as exc:  # the index is derived data -- never let it block the worklog itself
+            debug_log.log("worklog: failed to index %s/%s: %r" % (date, summary.get("session_id"), exc))
+
     return True
