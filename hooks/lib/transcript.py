@@ -200,7 +200,12 @@ def reconstruct_live_chain(records):
     abandoned_records = [r for r in records if r.get("uuid") and r["uuid"] not in live_ids]
 
     abandoned_attempts = [
-        {"attempt": r.get("content") or r.get("type"), "why_abandoned": "superseded by a later rewind/retry"}
+        {
+            "attempt": r.get("content") or r.get("type"),
+            "why_abandoned": "superseded by a later rewind/retry",
+            "date": r.get("date"),
+            "project": r.get("project"),
+        }
         for r in abandoned_records
         if r.get("type") in ("prompt", "plan", "file_change")
     ]
