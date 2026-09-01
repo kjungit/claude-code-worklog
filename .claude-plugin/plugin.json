@@ -1,0 +1,32 @@
+{
+  "name": "worklog",
+  "version": "1.0.0",
+  "description": "Automatically captures Claude Code work sessions and summarizes them into a daily worklog.",
+  "author": {
+    "name": "kjungit"
+  },
+  "keywords": ["worklog", "productivity", "daily-log", "hooks"],
+  "userConfig": {
+    "notes_path": {
+      "type": "string",
+      "title": "Notes directory",
+      "description": "Where to write the generated daily worklog (.md) files. Leave empty to use the plugin's default data directory. Set this to an Obsidian vault path to keep notes there instead."
+    },
+    "archive_after_days": {
+      "type": "string",
+      "title": "Archive raw logs after (days)",
+      "description": "Raw session logs older than this are gzip-compressed in place. Nothing is ever deleted. Default: 180."
+    },
+    "anthropic_api_key": {
+      "type": "string",
+      "title": "Anthropic API key (optional)",
+      "description": "If set, summarization runs in isolated mode (--bare) using this key instead of your Claude Code subscription session. Leave empty to use your existing login.",
+      "sensitive": true
+    },
+    "summary_model": {
+      "type": "string",
+      "title": "Summary model (optional)",
+      "description": "Model to use when generating summaries. Leave empty to use your default model."
+    }
+  }
+}

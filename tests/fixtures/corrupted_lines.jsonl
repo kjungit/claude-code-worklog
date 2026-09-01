@@ -1,0 +1,5 @@
+{"type": "user", "uuid": "uuid-1", "parentUuid": null, "sessionId": "sess-corrupt", "cwd": "/Users/x/dev/my-app", "gitBranch": "main", "timestamp": "2026-08-29T10:00:00+09:00", "isSidechain": false, "message": {"role": "user", "content": "fix the failing test"}}
+{this is not valid json at all,,, }
+{"type": "assistant", "uuid": "uuid-2", "parentUuid": "uuid-1", "sessionId": "sess-corrupt", "cwd": "/Users/x/dev/my-app", "gitBranch": "main", "timestamp": "2026-08-29T10:00:05+09:00", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "Edit", "input": {"file_path": "src/test.py"}}], "usage": {"input_tokens": 10, "output_tokens": 5}}}
+
+{"type": "user", "uuid": "uuid-3", "parentUuid": "uuid-2", "sessionId": "sess-corrupt", "cwd": "/Users/x/dev/my-app", "gitBranch": "main", "timestamp": "2026-08-29T10:00:06+09:00", "isSidechain": false, "message": {"role": "user", "content": [{"type": "tool_result", "tool_use_id": "tool-1", "content": "AssertionError: expected 1 got 2", "is_error": true}]}}

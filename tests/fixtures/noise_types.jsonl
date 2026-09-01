@@ -1,0 +1,10 @@
+{"type": "mode", "mode": "default", "sessionId": "sess-noise"}
+{"type": "permission-mode", "permissionMode": "default", "sessionId": "sess-noise"}
+{"type": "atis-latch", "atis": true, "sessionId": "sess-noise"}
+{"type": "bridge-session", "bridgeSessionId": "b1", "sessionId": "sess-noise"}
+{"type": "file-history-snapshot", "isSnapshotUpdate": false, "messageId": "msg-1", "snapshot": {}}
+{"type": "ai-title", "aiTitle": "Some session title", "sessionId": "sess-noise"}
+{"type": "attachment", "attachment": {"stdout": "hook ran"}, "sessionId": "sess-noise", "uuid": "hook-uuid-1", "parentUuid": "n1", "timestamp": "2026-08-29T10:00:06+09:00"}
+{"type": "last-prompt", "lastPrompt": "add a login button", "leafUuid": "n2", "sessionId": "sess-noise"}
+{"type": "user", "uuid": "n1", "parentUuid": null, "sessionId": "sess-noise", "cwd": "/Users/x/dev/my-app", "gitBranch": "main", "timestamp": "2026-08-29T10:00:00+09:00", "isSidechain": false, "message": {"role": "user", "content": "make a plan to refactor auth"}}
+{"type": "assistant", "uuid": "n2", "parentUuid": "n1", "sessionId": "sess-noise", "cwd": "/Users/x/dev/my-app", "gitBranch": "main", "timestamp": "2026-08-29T10:00:05+09:00", "isSidechain": false, "message": {"role": "assistant", "content": [{"type": "tool_use", "id": "tool-1", "name": "ExitPlanMode", "input": {"plan": "1. extract token refresh into its own module\n2. add tests\n3. migrate callers"}}], "usage": {"input_tokens": 30, "output_tokens": 40}}}
