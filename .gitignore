@@ -1,0 +1,22 @@
+# internal design docs — never published to this repo
+docs/
+
+# python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+
+# local plugin runtime data (should never live in the repo anyway)
+data/
+notes/
+.cursors/
+.debug.log
+.lock
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+
+# os/editor
+.DS_Store
+*.swp
