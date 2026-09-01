@@ -1,0 +1,13 @@
+{
+  "name": "claude-code-worklog",
+  "owner": {
+    "name": "kjungit"
+  },
+  "plugins": [
+    {
+      "name": "worklog",
+      "source": "./",
+      "description": "Automatically captures Claude Code work sessions and summarizes them into a daily worklog."
+    }
+  ]
+}
