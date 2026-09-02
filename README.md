@@ -2,7 +2,7 @@
 
 Automatically captures what you do in Claude Code and turns it into a daily worklog, without you having to ask for it.
 
-Every turn is captured silently by a hook (no LLM call, no cost). Once a day has passed, the next time you start a session it gets summarized in the background into a plain markdown file. Ask for it whenever you want with `/worklog`.
+Every turn is captured silently by a hook (no LLM call, no cost). Once a day has passed, the next time you start a session it gets summarized in the background into a plain markdown file. Ask for it whenever you want with `/worklog:show`.
 
 ## Install
 
@@ -15,13 +15,15 @@ You'll be asked for a few optional settings on install (see [Configuration](#con
 
 ## Commands
 
+Plugin commands are namespaced as `/<plugin-name>:<command>`, so these show up as:
+
 | Command | What it does |
 |---|---|
-| `/worklog [date]` | Show a day's worklog (today by default) |
-| `/worklog-search <keyword>` | Full-text search across every past worklog entry |
-| `/worklog-archive [days]` | Gzip-compress raw session logs older than N days into `archive/` (default 180 days). Never deletes anything |
-| `/worklog-debug` | Show recent plugin errors |
-| `/worklog-doctor` | Check that the plugin is set up correctly: data directory, pending summaries, recent errors |
+| `/worklog:show [date]` | Show a day's worklog (today by default) |
+| `/worklog:search <keyword>` | Full-text search across every past worklog entry |
+| `/worklog:archive [days]` | Gzip-compress raw session logs older than N days into `archive/` (default 180 days). Never deletes anything |
+| `/worklog:debug` | Show recent plugin errors |
+| `/worklog:doctor` | Check that the plugin is set up correctly: data directory, pending summaries, recent errors |
 
 Ask naturally, too -- "what did I work on last week", "compare Tuesday and Thursday", "find that redirect URI bug" -- the `worklog-query` skill handles anything beyond a single day.
 
@@ -32,7 +34,7 @@ Ask naturally, too -- "what did I work on last week", "compare Tuesday and Thurs
 | Stop hook (`on_stop.py`) | The current session's own transcript file only | `${CLAUDE_PLUGIN_DATA}/data/`, `.cursors/` | nothing external |
 | SessionStart hook (`check_and_summarize.py`) | `${CLAUDE_PLUGIN_DATA}/data/` | `notes/`, `*.summary.json`, `index.sqlite` | `claude -p` (headless), `git log` (in the project directory only) |
 | `worklog-query` skill | `${CLAUDE_PLUGIN_DATA}` (read-only) | nothing | nothing |
-| `/worklog-archive` | `data/{date}/` | `archive/*.tar.gz` only | nothing |
+| `/worklog:archive` | `data/{date}/` | `archive/*.tar.gz` only | nothing |
 
 Principles this is built around:
 - **No code path can delete your raw logs.** Archiving only ever compresses a copy into `archive/`; there is no delete function anywhere in this plugin.
@@ -55,7 +57,7 @@ All of these are optional and can be set (or changed) via `/plugin` after instal
 | Option | Default | Effect |
 |---|---|---|
 | `notes_path` | `${CLAUDE_PLUGIN_DATA}/notes` | Where daily worklog `.md` files are written. Point this at an Obsidian vault to keep them there instead |
-| `archive_after_days` | `180` | How old a day's raw logs need to be before `/worklog-archive` will compress them |
+| `archive_after_days` | `180` | How old a day's raw logs need to be before `/worklog:archive` will compress them |
 | `anthropic_api_key` | (unset) | If set, switches summarization to isolated mode. Stored in your OS keychain, never in a plain file |
 | `summary_model` | (unset, uses your default model) | Model used for the two `claude -p` summarization calls |
 
