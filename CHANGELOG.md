@@ -2,6 +2,13 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.3
+
+Migration needed: no.
+
+- The 1.0.2 fix wasn't enough: verified against the real install that a slash command's bash step gets neither `CLAUDE_PLUGIN_DATA` nor `CLAUDE_PLUGIN_ROOT` as actual environment variables (only hook processes get them) -- `${CLAUDE_PLUGIN_ROOT}` in a command file is apparently just text-substituted into the invoked command line, not exported into the subprocess environment. `data_dir()` now also derives the plugin's cache path from `paths.py`'s own file location as a further fallback, which needs no environment variable at all. Confirmed against the real install with a completely empty environment
+- `/worklog:doctor` now reports both `CLAUDE_PLUGIN_DATA` and `CLAUDE_PLUGIN_ROOT` raw env state
+
 ## 1.0.2
 
 Migration needed: no.
