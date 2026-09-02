@@ -2,6 +2,13 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.2
+
+Migration needed: no.
+
+- Fixed a real bug found on first install: `CLAUDE_PLUGIN_DATA` is set for hook processes (`on_stop.py`, `check_and_summarize.py`) but was not set for a slash command's bash step, so `/worklog:doctor`, `/worklog:show`, and `/worklog:search` were silently reading from the wrong directory (a plugin-name-only fallback) while capture was correctly writing to `~/.claude/plugins/data/<plugin>-<marketplace>/`. `data_dir()` now derives that same path from `CLAUDE_PLUGIN_ROOT` (`.../cache/<marketplace>/<plugin>/<version>`) when `CLAUDE_PLUGIN_DATA` isn't set, before falling back further
+- `/worklog:doctor` now reports the raw `CLAUDE_PLUGIN_DATA` env var state so this class of mismatch is visible instead of silent
+
 ## 1.0.1
 
 Migration needed: no.

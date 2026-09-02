@@ -1,16 +1,41 @@
-"""Path resolution shared by both hooks.
+"""Path resolution shared by both hooks and the CLI (docs 16.1, 24.2).
 
 Only uses `os`, so it stays safe to import from on_stop.py (docs 16.1).
 """
 
 import os
 
-_FALLBACK_DATA_DIR = os.path.expanduser("~/.claude/plugins/data/worklog")
+_LAST_RESORT_DATA_DIR = os.path.expanduser("~/.claude/plugins/data/worklog")
+
+
+def _data_dir_from_plugin_root():
+    """Verified against a real install: CLAUDE_PLUGIN_DATA is not set for the
+    bash step of a slash command (only for hook processes), even though
+    CLAUDE_PLUGIN_ROOT is. CLAUDE_PLUGIN_ROOT looks like
+    .../cache/<marketplace>/<plugin>/<version>, and the hook-assigned data
+    directory observed on disk was ~/.claude/plugins/data/<plugin>-<marketplace>
+    -- so reconstruct that instead of guessing a plugin-name-only path.
+    """
+    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
+    if not root:
+        return None
+    parts = os.path.normpath(root).split(os.sep)
+    if len(parts) < 4 or parts[-4] != "cache":
+        return None
+    marketplace, plugin = parts[-3], parts[-2]
+    return os.path.expanduser("~/.claude/plugins/data/%s-%s" % (plugin, marketplace))
 
 
 def data_dir():
-    """${CLAUDE_PLUGIN_DATA}, with a fallback for the intermittent-unset bug (docs 24.2)."""
-    return os.environ.get("CLAUDE_PLUGIN_DATA") or _FALLBACK_DATA_DIR
+    """${CLAUDE_PLUGIN_DATA}, falling back to a path derived from
+    ${CLAUDE_PLUGIN_ROOT} (see _data_dir_from_plugin_root), and finally to a
+    hardcoded guess if neither is available.
+    """
+    return (
+        os.environ.get("CLAUDE_PLUGIN_DATA")
+        or _data_dir_from_plugin_root()
+        or _LAST_RESORT_DATA_DIR
+    )
 
 
 def cursors_dir():
