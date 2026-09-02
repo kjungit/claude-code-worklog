@@ -69,6 +69,12 @@ def cmd_debug(args):
 def cmd_doctor(args):
     lines = []
 
+    raw_env = os.environ.get("CLAUDE_PLUGIN_DATA")
+    if raw_env:
+        lines.append("CLAUDE_PLUGIN_DATA: %s (set directly)" % raw_env)
+    else:
+        lines.append("CLAUDE_PLUGIN_DATA: not set for this process -- resolving via a fallback (see below)")
+
     d = data_dir()
     lines.append("Data directory: %s" % d)
     try:
