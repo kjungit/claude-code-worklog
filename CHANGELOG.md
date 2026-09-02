@@ -2,6 +2,12 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.4
+
+Migration needed: no.
+
+- Fixed a real gap found while dogfooding: once `notes/{date}.md` existed, that date was permanently treated as done, even if a session held open across midnight kept appending more turns (still timestamped before midnight) to that same date's folder afterward. `find_unsummarized_dates()` now also re-flags a date if any of its session `.jsonl` files are newer than its `notes/{date}.md`, the same mtime-based invalidation already used for the per-session summary cache. Already-cached session summaries aren't redone -- only the date's Reduce step reruns to fold in the new session
+
 ## 1.0.3
 
 Migration needed: no.

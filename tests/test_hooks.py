@@ -173,6 +173,44 @@ class CheckAndSummarizeUnitTest(TempDataDir):
 
         self.assertEqual(check_and_summarize.find_unsummarized_dates(), [])
 
+    def test_summarized_date_with_newer_session_data_is_reconsidered(self):
+        """A session held open across midnight keeps appending to yesterday's
+        folder for any turn still timestamped before midnight. If that lands
+        after the day was already summarized, the note is now stale."""
+        data_root = os.path.join(self.tmp, "data")
+        date_dir = os.path.join(data_root, "2026-08-27")
+        os.makedirs(date_dir)
+        os.makedirs(os.path.join(self.tmp, "notes"))
+        note = os.path.join(self.tmp, "notes", "2026-08-27.md")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("already done")
+
+        # a session appends more data to the same date folder *after* that
+        old_mtime = os.path.getmtime(note)
+        session_file = os.path.join(date_dir, "sess-late.jsonl")
+        with open(session_file, "w", encoding="utf-8") as fh:
+            fh.write('{"type": "prompt"}\n')
+        os.utime(session_file, (old_mtime + 10, old_mtime + 10))
+
+        self.assertEqual(check_and_summarize.find_unsummarized_dates(), ["2026-08-27"])
+
+    def test_summarized_date_with_only_older_session_data_stays_excluded(self):
+        data_root = os.path.join(self.tmp, "data")
+        date_dir = os.path.join(data_root, "2026-08-27")
+        os.makedirs(date_dir)
+        session_file = os.path.join(date_dir, "sess-early.jsonl")
+        with open(session_file, "w", encoding="utf-8") as fh:
+            fh.write('{"type": "prompt"}\n')
+
+        os.makedirs(os.path.join(self.tmp, "notes"))
+        note = os.path.join(self.tmp, "notes", "2026-08-27.md")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("already done")
+        new_mtime = os.path.getmtime(session_file) + 10
+        os.utime(note, (new_mtime, new_mtime))
+
+        self.assertEqual(check_and_summarize.find_unsummarized_dates(), [])
+
     def test_stale_lock_is_overridden(self):
         with open(os.path.join(self.tmp, ".lock"), "w", encoding="utf-8") as fh:
             json.dump({"pid": 999999, "started_at": 0}, fh)  # epoch -- ancient, must be treated as stale
