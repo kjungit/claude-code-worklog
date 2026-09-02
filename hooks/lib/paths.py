@@ -8,15 +8,12 @@ import os
 _LAST_RESORT_DATA_DIR = os.path.expanduser("~/.claude/plugins/data/worklog")
 
 
-def _data_dir_from_plugin_root():
-    """Verified against a real install: CLAUDE_PLUGIN_DATA is not set for the
-    bash step of a slash command (only for hook processes), even though
-    CLAUDE_PLUGIN_ROOT is. CLAUDE_PLUGIN_ROOT looks like
+def _data_dir_from_plugin_root(root):
+    """CLAUDE_PLUGIN_ROOT (when available) looks like
     .../cache/<marketplace>/<plugin>/<version>, and the hook-assigned data
     directory observed on disk was ~/.claude/plugins/data/<plugin>-<marketplace>
     -- so reconstruct that instead of guessing a plugin-name-only path.
     """
-    root = os.environ.get("CLAUDE_PLUGIN_ROOT")
     if not root:
         return None
     parts = os.path.normpath(root).split(os.sep)
@@ -26,14 +23,27 @@ def _data_dir_from_plugin_root():
     return os.path.expanduser("~/.claude/plugins/data/%s-%s" % (plugin, marketplace))
 
 
+def _plugin_root_from_file_location():
+    """This file lives at <plugin_root>/hooks/lib/paths.py. Verified against a
+    real install: a slash command's bash step gets neither CLAUDE_PLUGIN_DATA
+    nor CLAUDE_PLUGIN_ROOT as actual environment variables (only hook
+    processes do) -- ${CLAUDE_PLUGIN_ROOT} is apparently just text-substituted
+    into the command line used to launch the script. This derivation needs no
+    env var at all, since it only depends on where this file physically is.
+    """
+    hooks_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))  # .../<plugin_root>/hooks
+    return os.path.dirname(hooks_dir)  # .../<plugin_root>
+
+
 def data_dir():
-    """${CLAUDE_PLUGIN_DATA}, falling back to a path derived from
-    ${CLAUDE_PLUGIN_ROOT} (see _data_dir_from_plugin_root), and finally to a
-    hardcoded guess if neither is available.
+    """${CLAUDE_PLUGIN_DATA}, then a path derived from ${CLAUDE_PLUGIN_ROOT} if
+    that's set, then the same derivation from this file's own location (which
+    works even with no relevant env vars at all), then a hardcoded guess.
     """
     return (
         os.environ.get("CLAUDE_PLUGIN_DATA")
-        or _data_dir_from_plugin_root()
+        or _data_dir_from_plugin_root(os.environ.get("CLAUDE_PLUGIN_ROOT"))
+        or _data_dir_from_plugin_root(_plugin_root_from_file_location())
         or _LAST_RESORT_DATA_DIR
     )
 
