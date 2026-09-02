@@ -2,7 +2,7 @@
 
 Exceptions in a hook must never surface to the user or change the exit
 code -- they go here instead, silently. Rotated to the most recent
-MAX_LINES lines so it never grows unbounded; /worklog-debug reads the tail.
+MAX_LINES lines so it never grows unbounded; /worklog:debug reads the tail.
 """
 
 import os
