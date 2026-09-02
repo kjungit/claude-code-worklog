@@ -23,8 +23,36 @@ def today_str():
     return datetime.date.today().isoformat()
 
 
+def _is_up_to_date(date_name, date_dir):
+    """A date counts as done only if notes/{date}.md exists AND is at least as
+    new as every session file in that date's folder. A session that stays
+    open across midnight keeps appending to yesterday's folder for any turn
+    still timestamped before midnight (docs 23.4) -- if one of those turns
+    lands after the day was already summarized, the note is now stale and
+    needs to be regenerated, the same way a session's own *.summary.json
+    cache is invalidated by a newer jsonl (see summarize._cache_valid).
+    """
+    note = note_path(date_name)
+    if not os.path.exists(note):
+        return False
+    note_mtime = os.path.getmtime(note)
+    for name in os.listdir(date_dir):
+        if not name.endswith(".jsonl"):
+            continue
+        session_path = os.path.join(date_dir, name)
+        try:
+            if os.path.getmtime(session_path) > note_mtime:
+                return False
+        except OSError:
+            continue
+    return True
+
+
 def find_unsummarized_dates():
-    """Date folders under data/ that have no notes/{date}.md yet. Today is excluded -- it's still in progress."""
+    """Date folders under data/ that are missing a notes/{date}.md, or whose
+    notes/{date}.md is now stale relative to new session data. Today is
+    excluded -- it's still in progress.
+    """
     root = os.path.join(data_dir(), "data")
     if not os.path.isdir(root):
         return []
@@ -33,9 +61,10 @@ def find_unsummarized_dates():
     for name in sorted(os.listdir(root)):
         if name == today:
             continue
-        if not os.path.isdir(os.path.join(root, name)):
+        date_dir = os.path.join(root, name)
+        if not os.path.isdir(date_dir):
             continue
-        if not os.path.exists(note_path(name)):
+        if not _is_up_to_date(name, date_dir):
             dates.append(name)
     return dates
 
