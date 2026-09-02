@@ -34,7 +34,7 @@ def cmd_show(args):
 def cmd_search(args):
     query = " ".join(args.query)
     if not query.strip():
-        print("Usage: /worklog-search <keyword>")
+        print("Usage: /worklog:search <keyword>")
         return
     results = search_index.search(query, limit=args.limit)
     if not results:
@@ -106,7 +106,7 @@ def cmd_doctor(args):
 
     recent_errors = debug_log.tail(5)
     if recent_errors:
-        lines.append("\nMost recent debug log entries (see /worklog-debug for more):")
+        lines.append("\nMost recent debug log entries (see /worklog:debug for more):")
         lines.extend("  " + line.rstrip("\n") for line in recent_errors)
     else:
         lines.append("Recent errors: none")
