@@ -2,6 +2,12 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.5
+
+Migration needed: no.
+
+- Added `--now` to `/worklog:show` to force an immediate summary of a date (today by default) instead of waiting for the next `SessionStart`. `SessionEnd` was considered as an automatic trigger for this instead, but was rejected again for the same reason it was rejected for capture (docs `claude-code-worklog-design.md` §2, §10): it doesn't fire on `Ctrl+C`-twice suspends or long-lived sessions, so it can't be relied on. `--now` reuses the existing staleness-aware `summarize_date()` and the existing summarization lock, so it's safe to run even while a background pass from another terminal is in flight
+
 ## 1.0.4
 
 Migration needed: no.
