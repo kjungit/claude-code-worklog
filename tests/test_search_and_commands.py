@@ -3,6 +3,7 @@
 Run with: python3 tests/test_search_and_commands.py
 """
 
+import argparse
 import datetime
 import json
 import os
@@ -11,17 +12,21 @@ import subprocess
 import sys
 import tarfile
 import tempfile
+import time
 import unittest
 from unittest import mock
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CLI = os.path.join(REPO_ROOT, "hooks", "cli.py")
 sys.path.insert(0, os.path.join(REPO_ROOT, "hooks", "lib"))
+sys.path.insert(0, os.path.join(REPO_ROOT, "hooks"))
 
 import archive as archive_module  # noqa: E402
+import cli  # noqa: E402
 import debug_log  # noqa: E402
 import paths  # noqa: E402
 import search_index  # noqa: E402
+import summarize  # noqa: E402
 
 
 class TempDataDir(unittest.TestCase):
@@ -174,6 +179,72 @@ class CliSmokeTest(TempDataDir):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("writable: yes", proc.stdout)
         self.assertIn("Pending: none", proc.stdout)
+
+
+def _prompt_record(session_id, date):
+    return {
+        "schema_version": 2,
+        "uuid": "u1",
+        "parentUuid": None,
+        "date": date,
+        "session_id": session_id,
+        "project": "my-app",
+        "project_path": "/tmp/does-not-need-to-exist",
+        "git_branch": "main",
+        "timestamp": "%sT10:00:00+09:00" % date,
+        "type": "prompt",
+        "content": "fix the bug",
+    }
+
+
+VALID_MAP_JSON = json.dumps(
+    {
+        "title": "Did the thing",
+        "questions_asked": [],
+        "plans": [],
+        "problems": [],
+        "decisions": [],
+        "files_changed": [],
+        "tags": [],
+        "data_gaps": [],
+    }
+)
+
+
+class ShowNowTest(TempDataDir):
+    def _write_session(self, date, session_id):
+        raw_dir = paths.raw_session_dir(date)
+        os.makedirs(raw_dir, exist_ok=True)
+        path = os.path.join(raw_dir, "%s.jsonl" % session_id)
+        with open(path, "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(_prompt_record(session_id, date), ensure_ascii=False) + "\n")
+
+    def test_now_forces_summary_of_today(self):
+        today = datetime.date.today().isoformat()
+        self._write_session(today, "sess-1")
+
+        def fake_invoke(prompt, *args, **kwargs):
+            if "raw material captured from one Claude Code work session" in prompt:
+                return VALID_MAP_JSON
+            return "## my-app -- Did the thing\n- did the thing\n"
+
+        with mock.patch("summarize.invoke_claude", side_effect=fake_invoke), mock.patch(
+            "summarize.get_commits_for_date", return_value=([], [])
+        ):
+            cli.cmd_show(argparse.Namespace(date=None, now=True))
+
+        self.assertTrue(os.path.exists(paths.note_path(today)))
+
+    def test_now_falls_back_when_lock_already_held(self):
+        today = datetime.date.today().isoformat()
+        self._write_session(today, "sess-1")
+        with open(paths.lock_path(), "w", encoding="utf-8") as fh:
+            json.dump({"pid": os.getpid(), "started_at": time.time()}, fh)
+
+        with mock.patch("summarize.invoke_claude", side_effect=AssertionError("should not be called")):
+            cli.cmd_show(argparse.Namespace(date=None, now=True))
+
+        self.assertFalse(os.path.exists(paths.note_path(today)))
 
 
 if __name__ == "__main__":
