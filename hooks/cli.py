@@ -18,11 +18,22 @@ import archive as archive_module  # noqa: E402
 import check_and_summarize  # noqa: E402
 import debug_log  # noqa: E402
 import search_index  # noqa: E402
+import summarize  # noqa: E402
 from paths import data_dir, lock_path, note_path  # noqa: E402
 
 
 def cmd_show(args):
     date = args.date or datetime.date.today().isoformat()
+
+    if args.now:
+        if check_and_summarize.acquire_lock():
+            try:
+                summarize.summarize_date(date)
+            finally:
+                check_and_summarize.release_lock()
+        else:
+            print("A summarization is already running in the background -- showing what's available so far.\n")
+
     path = note_path(date)
     if not os.path.exists(path):
         print("No worklog for %s yet (not summarized, or nothing was captured that day)." % date)
@@ -124,6 +135,7 @@ def main():
 
     p_show = sub.add_parser("show")
     p_show.add_argument("date", nargs="?", default=None)
+    p_show.add_argument("--now", action="store_true", help="Force an immediate summarization instead of waiting for the next session start.")
     p_show.set_defaults(func=cmd_show)
 
     p_search = sub.add_parser("search")

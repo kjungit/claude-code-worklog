@@ -19,7 +19,7 @@ Plugin commands are namespaced as `/<plugin-name>:<command>`, so these show up a
 
 | Command | What it does |
 |---|---|
-| `/worklog:show [date]` | Show a day's worklog (today by default) |
+| `/worklog:show [date] [--now]` | Show a day's worklog (today by default). Pass `--now` to force an immediate summary of that date instead of waiting for the next session start |
 | `/worklog:search <keyword>` | Full-text search across every past worklog entry |
 | `/worklog:archive [days]` | Gzip-compress raw session logs older than N days into `archive/` (default 180 days). Never deletes anything |
 | `/worklog:debug` | Show recent plugin errors |
