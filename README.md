@@ -71,3 +71,7 @@ This plugin does not store any credentials of its own by default. It reuses your
 - Prompt injection defenses (disabled tools, data/instruction separation in the summarization prompt) reduce but don't eliminate the risk of a hostile file or commit message influencing summary *text*. Isolated mode narrows this further by not loading MCP servers at all. If a summary says something that looks out of place, check the original session.
 - Two terminals writing to the search index at the same moment are handled with SQLite's WAL mode and retries, but very heavy concurrent write load (many terminals finishing sessions at once) hasn't been load-tested.
 - `Ctrl+C` twice suspends a session rather than ending it, so `SessionEnd` never fires for it -- this plugin doesn't rely on `SessionEnd` at all, so it isn't affected, but it's worth knowing if you're debugging hook behavior yourself.
+
+## Development
+
+Run the test suite with `python3 -m unittest discover -s tests`.

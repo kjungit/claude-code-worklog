@@ -6,6 +6,7 @@ which must not pull in heavier modules (see docs section 16.1).
 
 import json
 import re
+from datetime import datetime
 
 SCHEMA_VERSION = 2
 
@@ -79,7 +80,24 @@ def _block_text(block_content):
     return _extract_text_blocks(block_content)
 
 
-def _base_record(obj, record_type, content, files_changed=None, usage=None):
+def _local_date(timestamp, tz=None):
+    """Convert a raw (typically UTC, `Z`-suffixed) transcript timestamp into the
+    calendar date it falls on in `tz` (system-local timezone when `tz` is None).
+
+    Naive string-slicing here would take the UTC date, not the date the user
+    actually experienced -- work done in the first few hours after local
+    midnight would silently land in the previous day's worklog (docs 4.1).
+    """
+    if not timestamp:
+        return None
+    try:
+        dt = datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+    except ValueError:
+        return timestamp[:10] or None  # malformed timestamp -- fall back rather than raise
+    return dt.astimezone(tz).date().isoformat()
+
+
+def _base_record(obj, record_type, content, files_changed=None, usage=None, tz=None):
     session_id = obj.get("sessionId") or obj.get("session_id")
     cwd = obj.get("cwd")
     timestamp = obj.get("timestamp")
@@ -87,7 +105,7 @@ def _base_record(obj, record_type, content, files_changed=None, usage=None):
         "schema_version": SCHEMA_VERSION,
         "uuid": obj.get("uuid"),
         "parentUuid": obj.get("parentUuid"),
-        "date": (timestamp or "")[:10] or None,
+        "date": _local_date(timestamp, tz),
         "session_id": session_id,
         "project": cwd.rstrip("/").rsplit("/", 1)[-1] if cwd else None,
         "project_path": cwd,
@@ -103,7 +121,7 @@ def _base_record(obj, record_type, content, files_changed=None, usage=None):
     return record
 
 
-def classify_and_extract(obj):
+def classify_and_extract(obj, tz=None):
     """Turn one parsed transcript line into zero or more capture records.
 
     Only `user` prompts, `assistant` plans (ExitPlanMode) and file
@@ -111,11 +129,14 @@ def classify_and_extract(obj):
     compact_boundary markers are extracted -- everything else (raw
     assistant prose, hook attachments, bookkeeping line types) is
     intentionally left out of the raw material (docs section 4.1, 22.2).
+
+    `tz` is passed through to `_local_date` for each record's `date` field
+    (None means system-local timezone; tests pin a fixed tz for determinism).
     """
     line_type = obj.get("type")
 
     if line_type == "system" and obj.get("subtype") == "compact_boundary":
-        return [_base_record(obj, "compact_boundary", "")]
+        return [_base_record(obj, "compact_boundary", "", tz=tz)]
 
     if line_type not in CAPTURED_LINE_TYPES:
         return []
@@ -130,11 +151,11 @@ def classify_and_extract(obj):
     if line_type == "user":
         for block in _as_blocks(content):
             if block.get("type") == "tool_result" and block.get("is_error"):
-                records.append(_base_record(obj, "error", _block_text(block.get("content"))))
+                records.append(_base_record(obj, "error", _block_text(block.get("content")), tz=tz))
         prompt_text = _extract_text_blocks(content)
         if prompt_text and prompt_text.strip():
             # empty when content was tool_result-only (no plain text blocks) -- correctly not a prompt
-            records.append(_base_record(obj, "prompt", prompt_text.strip()))
+            records.append(_base_record(obj, "prompt", prompt_text.strip(), tz=tz))
 
     elif line_type == "assistant":
         usage = message.get("usage")
@@ -144,7 +165,7 @@ def classify_and_extract(obj):
             name = block.get("name")
             tool_input = block.get("input") or {}
             if name == "ExitPlanMode":
-                records.append(_base_record(obj, "plan", tool_input.get("plan", ""), usage=usage))
+                records.append(_base_record(obj, "plan", tool_input.get("plan", ""), usage=usage, tz=tz))
             elif name in FILE_TOOL_NAMES:
                 file_path = tool_input.get("file_path")
                 records.append(
@@ -154,6 +175,7 @@ def classify_and_extract(obj):
                         name,
                         files_changed=[file_path] if file_path else [],
                         usage=usage,
+                        tz=tz,
                     )
                 )
 

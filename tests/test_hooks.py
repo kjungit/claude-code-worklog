@@ -64,6 +64,95 @@ class RecursionGuardTest(TempDataDir):
         self.assertEqual(os.listdir(self.tmp), [])
 
 
+class RecursionGuardEndToEndTest(TempDataDir):
+    """Strengthens RecursionGuardTest: that one only proves the hooks exit
+    early when WORKLOG_INTERNAL is pre-set by the test itself. This exercises
+    the real path -- a fake `claude` binary standing in for `claude -p`,
+    which itself tries to re-fire the Stop hook the way a child Claude Code
+    session's own hooks would if it reloaded this plugin (docs 23.1). If the
+    WORKLOG_INTERNAL env var claude_invoke.py sets ever stopped propagating,
+    this is what would actually catch it: the nested on_stop.py call would
+    capture real data instead of no-op'ing."""
+
+    def _write_pending_session(self, date, session_id):
+        record = {
+            "schema_version": 2,
+            "uuid": "u1",
+            "parentUuid": None,
+            "date": date,
+            "session_id": session_id,
+            "project": "my-app",
+            "project_path": "/tmp/does-not-need-to-exist",
+            "git_branch": "main",
+            "timestamp": "%sT10:00:00+09:00" % date,
+            "type": "prompt",
+            "content": "fix the bug",
+        }
+        date_dir = os.path.join(self.tmp, "data", date)
+        os.makedirs(date_dir, exist_ok=True)
+        with open(os.path.join(date_dir, "%s.jsonl" % session_id), "a", encoding="utf-8") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False) + "\n")
+
+    def _write_fake_claude(self, bin_dir, calls_log, nested_transcript, nested_session_id):
+        script_path = os.path.join(bin_dir, "claude")
+        body = (
+            "#!/usr/bin/env python3\n"
+            "import json, subprocess, sys\n"
+            "with open(%r, 'a', encoding='utf-8') as fh:\n"
+            "    fh.write('call\\n')\n"
+            "prompt = sys.stdin.read()\n"
+            "# Simulate a child Claude Code session reloading this plugin's own hooks --\n"
+            "# this must inherit WORKLOG_INTERNAL from our own environment unchanged.\n"
+            "payload = json.dumps({'session_id': %r, 'transcript_path': %r})\n"
+            "subprocess.run([%r, %r], input=payload, capture_output=True, text=True)\n"
+            "if 'raw material captured from one Claude Code work session' in prompt:\n"
+            "    result = json.dumps({'title': 'Fixed the bug', 'questions_asked': [], 'plans': [],\n"
+            "        'problems': [], 'decisions': [], 'files_changed': [], 'tags': [], 'data_gaps': []})\n"
+            "else:\n"
+            "    result = '## my-app -- Fixed the bug\\n- did the thing\\n'\n"
+            "print(json.dumps({'type': 'result', 'is_error': False, 'result': result}))\n"
+        ) % (calls_log, nested_session_id, nested_transcript, sys.executable, ON_STOP)
+        with open(script_path, "w", encoding="utf-8") as fh:
+            fh.write(body)
+        os.chmod(script_path, 0o755)
+
+    def test_child_claude_process_cannot_recapture_via_its_own_hooks(self):
+        self._write_pending_session("2026-08-27", "sess-1")
+
+        bin_dir = os.path.join(self.tmp, "bin")
+        os.makedirs(bin_dir)
+        calls_log = os.path.join(self.tmp, "claude_calls.log")
+
+        nested_transcript = os.path.join(self.tmp, "nested_transcript.jsonl")
+        with open(nested_transcript, "w", encoding="utf-8") as fh:
+            fh.write(
+                '{"type": "user", "uuid": "n1", "parentUuid": null, '
+                '"timestamp": "2026-08-27T12:00:00+09:00", "cwd": "/tmp/my-app", '
+                '"message": {"content": "a prompt from inside the child session"}}\n'
+            )
+        nested_session_id = "nested-child-session"
+        self._write_fake_claude(bin_dir, calls_log, nested_transcript, nested_session_id)
+
+        overrides = self.data_env()
+        overrides["PATH"] = bin_dir + os.pathsep + os.environ.get("PATH", "")
+        proc = run_hook(CHECK_AND_SUMMARIZE, {}, overrides)
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        with open(calls_log, encoding="utf-8") as fh:
+            call_count = len(fh.readlines())
+        self.assertEqual(call_count, 2)  # one map call, one reduce call -- not more
+
+        self.assertTrue(os.path.exists(os.path.join(self.tmp, "notes", "2026-08-27.md")))
+
+        # the nested on_stop.py invocation must not have captured anything --
+        # WORKLOG_INTERNAL, inherited unchanged from claude_invoke.py's env,
+        # must have short-circuited it before it ever touched the data dir.
+        for date_name in os.listdir(os.path.join(self.tmp, "data")):
+            nested_path = os.path.join(self.tmp, "data", date_name, "%s.jsonl" % nested_session_id)
+            self.assertFalse(os.path.exists(nested_path))
+        self.assertFalse(os.path.exists(os.path.join(self.tmp, ".cursors", "%s.json" % nested_session_id)))
+
+
 class OnStopCaptureTest(TempDataDir):
     def _capture(self, fixture_name, session_id):
         transcript = os.path.join(FIXTURES, fixture_name)
@@ -102,6 +191,45 @@ class OnStopCaptureTest(TempDataDir):
         records = self._read_captured("2026-08-29", "sess-rewind")
         uuids = {r["uuid"] for r in records}
         self.assertEqual(uuids, {"r1", "r2", "r3"})
+
+    def test_shrunk_transcript_recovers_instead_of_stalling_forever(self):
+        """If the transcript file ever becomes smaller than the stored cursor
+        (truncated/recreated for any reason), the old cursor is stale. Without
+        a reset, seeking to it lands past EOF and capture silently never
+        advances again for that session id."""
+        transcript_path = os.path.join(self.tmp, "live_session.jsonl")
+        shutil.copy(os.path.join(FIXTURES, "normal_session.jsonl"), transcript_path)
+
+        payload = {"session_id": "sess-live", "transcript_path": transcript_path}
+        proc = run_hook(ON_STOP, payload, self.data_env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        cursor_path = os.path.join(self.tmp, ".cursors", "sess-live.json")
+        with open(cursor_path, encoding="utf-8") as fh:
+            cursor_before = json.load(fh)["last_byte_offset"]
+        self.assertGreater(cursor_before, 0)
+
+        # simulate the transcript shrinking below the stored cursor, then
+        # gaining fresh (different) content
+        new_line = (
+            '{"type": "user", "uuid": "u-new", "parentUuid": null, '
+            '"timestamp": "2026-08-29T11:00:00+09:00", "cwd": "/tmp/my-app", '
+            '"message": {"content": "a brand new prompt after the shrink"}}\n'
+        )
+        with open(transcript_path, "w", encoding="utf-8") as fh:
+            fh.write(new_line)
+        self.assertLess(os.path.getsize(transcript_path), cursor_before)
+
+        proc = run_hook(ON_STOP, payload, self.data_env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        records = self._read_captured("2026-08-29", "sess-live")
+        prompts = [r["content"] for r in records if r["type"] == "prompt"]
+        self.assertIn("a brand new prompt after the shrink", prompts)
+
+        with open(cursor_path, encoding="utf-8") as fh:
+            cursor_after = json.load(fh)["last_byte_offset"]
+        self.assertEqual(cursor_after, os.path.getsize(transcript_path))
 
 
 class HookFeedbackLoopTest(TempDataDir):
