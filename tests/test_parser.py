@@ -7,12 +7,18 @@ Run with: python3 tests/test_parser.py
 import os
 import sys
 import unittest
+from datetime import timedelta, timezone
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "hooks", "lib"))
 FIXTURES = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures")
 
 import transcript  # noqa: E402
+
+# Fixtures embed +09:00-offset timestamps. Date derivation now converts to a
+# timezone (system-local in production), so tests pin a fixed tz instead of
+# depending on whichever machine happens to run them.
+FIXED_TZ = timezone(timedelta(hours=9))
 
 
 def load_fixture(name):
@@ -21,10 +27,10 @@ def load_fixture(name):
         return list(fh)
 
 
-def records_for(name):
+def records_for(name, tz=FIXED_TZ):
     out = []
     for obj in transcript.parse_jsonl_lines(load_fixture(name)):
-        out.extend(transcript.classify_and_extract(obj))
+        out.extend(transcript.classify_and_extract(obj, tz=tz))
     return out
 
 
@@ -136,6 +142,40 @@ class DagReconstructionTest(unittest.TestCase):
         self.assertEqual(abandoned, [])
         dates = {r["date"] for r in live}
         self.assertEqual(dates, {"2026-08-29", "2026-08-30"})
+
+
+class TimezoneTest(unittest.TestCase):
+    def _prompt_obj(self, timestamp):
+        return {
+            "type": "user",
+            "uuid": "u1",
+            "parentUuid": None,
+            "timestamp": timestamp,
+            "cwd": "/tmp/my-app",
+            "message": {"content": "hi"},
+        }
+
+    def test_utc_timestamp_converted_to_local_date_not_sliced(self):
+        # 23:30 UTC on 8/30 is 08:30 KST on 8/31 -- a naive [:10] slice would
+        # wrongly keep it on 8/30.
+        obj = self._prompt_obj("2026-08-30T23:30:00Z")
+        records = transcript.classify_and_extract(obj, tz=FIXED_TZ)
+        self.assertEqual(records[0]["date"], "2026-08-31")
+
+    def test_already_local_offset_timestamp_unchanged(self):
+        obj = self._prompt_obj("2026-08-30T10:00:00+09:00")
+        records = transcript.classify_and_extract(obj, tz=FIXED_TZ)
+        self.assertEqual(records[0]["date"], "2026-08-30")
+
+    def test_malformed_timestamp_falls_back_without_raising(self):
+        obj = self._prompt_obj("not-a-timestamp")
+        records = transcript.classify_and_extract(obj, tz=FIXED_TZ)
+        self.assertEqual(records[0]["date"], "not-a-time")  # defensive fallback, docs 4.1 safeguard 3
+
+    def test_missing_timestamp_is_none(self):
+        obj = self._prompt_obj(None)
+        records = transcript.classify_and_extract(obj, tz=FIXED_TZ)
+        self.assertIsNone(records[0]["date"])
 
 
 if __name__ == "__main__":

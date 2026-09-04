@@ -2,6 +2,15 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.6
+
+Migration needed: no.
+
+- Fixed a real timezone bug found in review: a record's `date` was derived by naively slicing the first 10 characters of Claude Code's raw (UTC) timestamp, never converting to local time, contrary to docs 4.1's "local-timezone-based date" rule. Work done in the first few hours after local midnight was silently filed under the previous day. Now converts properly via `datetime.astimezone()` (system-local timezone by default). Code-only fix -- already-captured data on disk keeps whatever date it was originally filed under, nothing is migrated
+- Fixed a real capture stall found in review: if a session's transcript file ever became smaller than the stored byte-offset cursor (truncated/recreated for any reason), `read_new_lines()` would seek past EOF, read nothing, and never advance the cursor -- capture for that session id was silently and permanently stuck. The cursor now resets to 0 when the file has shrunk below it
+- Strengthened `RecursionGuardTest`, which previously only proved the hooks exit early when `WORKLOG_INTERNAL` is pre-set by the test itself, with an end-to-end test using a fake `claude` binary that itself tries to re-fire the Stop hook the way a child Claude Code session's own hooks would -- verifying the real env var propagation path, not just the short-circuit given the var is already set
+- Documented how to run the test suite in the README
+
 ## 1.0.5
 
 Migration needed: no.

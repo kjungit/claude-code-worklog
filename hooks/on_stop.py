@@ -32,7 +32,15 @@ def read_new_lines(transcript_path, offset):
     A trailing partial line (transcript_path is written asynchronously --
     docs 4.1 safeguard 2) is left unconsumed; it will be picked up whole
     on the next Stop hook once it's finished being written.
+
+    If the transcript is now smaller than the stored offset (truncated or
+    recreated for any reason), that offset is stale and unusable -- seeking
+    past EOF would read nothing forever and capture would stay silently
+    stuck. Treat it as if nothing had been read yet instead.
     """
+    if os.path.getsize(transcript_path) < offset:
+        offset = 0
+
     with open(transcript_path, "rb") as fh:
         fh.seek(offset)
         chunk = fh.read()
