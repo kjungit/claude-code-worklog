@@ -3,6 +3,7 @@
   "owner": {
     "name": "kjungit"
   },
+  "description": "Automatically captures Claude Code work sessions and summarizes them into a daily worklog.",
   "plugins": [
     {
       "name": "worklog",
