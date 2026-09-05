@@ -2,6 +2,12 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.7
+
+Migration needed: no.
+
+- Added `/worklog:list` to show which dates have a worklog at a glance (most recent 14 by default, `--all` for full history), so you don't have to guess a date for `/worklog:show` or reach for `/worklog:search` just to see what's there. When more dates exist than are shown, the output points to `--all` or `/worklog:search` to find them
+
 ## 1.0.6
 
 Migration needed: no.

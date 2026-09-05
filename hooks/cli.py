@@ -11,6 +11,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "lib"))
@@ -19,7 +20,10 @@ import check_and_summarize  # noqa: E402
 import debug_log  # noqa: E402
 import search_index  # noqa: E402
 import summarize  # noqa: E402
-from paths import data_dir, lock_path, note_path  # noqa: E402
+from paths import data_dir, lock_path, note_path, notes_dir  # noqa: E402
+
+RECENT_LIST_LIMIT = 14
+_HEADING_RE = re.compile(r"^## (.+?) -- (.+)$", re.MULTILINE)
 
 
 def cmd_show(args):
@@ -56,6 +60,37 @@ def cmd_search(args):
         print("- %s · %s · %s" % (r["date"], r["project"], r["title"]))
         if r["snippet"]:
             print("  %s" % r["snippet"])
+
+
+def _date_titles(date):
+    try:
+        with open(note_path(date), encoding="utf-8") as fh:
+            content = fh.read()
+    except OSError:
+        return ""
+    headings = _HEADING_RE.findall(content)
+    return "; ".join("%s: %s" % (project, title) for project, title in headings)
+
+
+def cmd_list(args):
+    d = notes_dir()
+    dates = sorted((n[:-3] for n in os.listdir(d) if n.endswith(".md")), reverse=True) if os.path.isdir(d) else []
+    if not dates:
+        print("No worklogs yet.")
+        return
+
+    shown = dates if args.all else dates[:RECENT_LIST_LIMIT]
+    print("%d worklog date(s)%s:\n" % (len(shown), "" if args.all else " (most recent %d)" % RECENT_LIST_LIMIT))
+    for date in shown:
+        titles = _date_titles(date)
+        print("- %s -- %s" % (date, titles) if titles else "- %s" % date)
+
+    remaining = len(dates) - len(shown)
+    if remaining > 0:
+        print(
+            "\n%d more not shown. Run `/worklog:list --all` to see the full history, "
+            "or `/worklog:search <keyword>` to find something specific." % remaining
+        )
 
 
 def cmd_archive(args):
@@ -137,6 +172,10 @@ def main():
     p_show.add_argument("date", nargs="?", default=None)
     p_show.add_argument("--now", action="store_true", help="Force an immediate summarization instead of waiting for the next session start.")
     p_show.set_defaults(func=cmd_show)
+
+    p_list = sub.add_parser("list")
+    p_list.add_argument("--all", action="store_true", help="Show every date instead of just the most recent %d." % RECENT_LIST_LIMIT)
+    p_list.set_defaults(func=cmd_list)
 
     p_search = sub.add_parser("search")
     p_search.add_argument("query", nargs="*")
