@@ -20,6 +20,7 @@ Plugin commands are namespaced as `/<plugin-name>:<command>`, so these show up a
 | Command | What it does |
 |---|---|
 | `/worklog:show [date] [--now]` | Show a day's worklog (today by default). Pass `--now` to force an immediate summary of that date instead of waiting for the next session start |
+| `/worklog:list [--all]` | List worklog dates at a glance (most recent 14 by default; `--all` for full history) |
 | `/worklog:search <keyword>` | Full-text search across every past worklog entry |
 | `/worklog:archive [days]` | Gzip-compress raw session logs older than N days into `archive/` (default 180 days). Never deletes anything |
 | `/worklog:debug` | Show recent plugin errors |
@@ -35,6 +36,7 @@ Ask naturally, too -- "what did I work on last week", "compare Tuesday and Thurs
 | SessionStart hook (`check_and_summarize.py`) | `${CLAUDE_PLUGIN_DATA}/data/` | `notes/`, `*.summary.json`, `index.sqlite` | `claude -p` (headless), `git log` (in the project directory only) |
 | `worklog-query` skill | `${CLAUDE_PLUGIN_DATA}` (read-only) | nothing | nothing |
 | `/worklog:archive` | `data/{date}/` | `archive/*.tar.gz` only | nothing |
+| `/worklog:list` | `notes/` | nothing | nothing |
 
 Principles this is built around:
 - **No code path can delete your raw logs.** Archiving only ever compresses a copy into `archive/`; there is no delete function anywhere in this plugin.
