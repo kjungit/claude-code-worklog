@@ -11,7 +11,7 @@ jobs:
     name: test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Run test suite
         run: python3 -m unittest discover -s tests
