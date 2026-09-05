@@ -2,6 +2,12 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 1.0.8
+
+Migration needed: no.
+
+- Summaries were always written in English regardless of the language a session was actually conducted in, because the Map/Reduce prompts gave no language instruction at all. Both prompts now ask the model to write in whichever language predominantly appears in the material (the user's own captured prompts, mainly) instead of defaulting to English. `tags` are deliberately kept in English/lowercase/kebab-case regardless, so tag-based search and grouping stays consistent across days written in different languages
+
 ## 1.0.7
 
 Migration needed: no.
