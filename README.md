@@ -77,3 +77,5 @@ This plugin does not store any credentials of its own by default. It reuses your
 ## Development
 
 Run the test suite with `python3 -m unittest discover -s tests`.
+
+Releasing: bump `version` in `.claude-plugin/plugin.json`, add a matching `## X.Y.Z` section to `CHANGELOG.md`, merge `dev` into `main`, then push an annotated tag `vX.Y.Z` pointing at that merge commit. Pushing the tag triggers `.github/workflows/release.yml`, which publishes a GitHub release using that `CHANGELOG.md` section as the release notes.
