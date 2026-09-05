@@ -88,6 +88,17 @@ class ParseMapOutputTest(unittest.TestCase):
             summarize.parse_map_output("[1, 2, 3]")
 
 
+class PromptLanguageInstructionTest(unittest.TestCase):
+    def test_map_prompt_asks_to_match_material_language(self):
+        prompt = summarize.build_map_prompt({"session_id": "s1"})
+        self.assertIn("same language predominantly used in the material", prompt)
+        self.assertIn("Keep tags in English", prompt)
+
+    def test_reduce_prompt_asks_to_match_summaries_language(self):
+        prompt = summarize.build_reduce_prompt("2026-08-29", [])
+        self.assertIn("same language predominantly used in the summaries", prompt)
+
+
 class SummarizeSessionCacheTest(TempDataDir):
     def test_uses_cache_without_calling_claude(self):
         self.write_capture_record("2026-08-29", "sess-1", prompt_record("sess-1", "2026-08-29"))
