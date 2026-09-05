@@ -159,6 +159,44 @@ class CliSmokeTest(TempDataDir):
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("hello", proc.stdout)
 
+    def test_list_with_no_data_reports_absence(self):
+        proc = run_cli(["list"], {"CLAUDE_PLUGIN_DATA": self.tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("No worklogs yet", proc.stdout)
+
+    def _write_note(self, date, heading="my-app -- Did the thing"):
+        os.makedirs(paths.notes_dir(), exist_ok=True)
+        with open(paths.note_path(date), "w", encoding="utf-8") as fh:
+            fh.write("---\ndate: %s\n---\n\n## %s\n\n- did the thing\n" % (date, heading))
+
+    def test_list_default_shows_only_recent_14_with_hint(self):
+        base = datetime.date(2026, 9, 4)
+        dates = [(base - datetime.timedelta(days=i)).isoformat() for i in range(16)]
+        for date in dates:
+            self._write_note(date)
+
+        proc = run_cli(["list"], {"CLAUDE_PLUGIN_DATA": self.tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for date in dates[:14]:
+            self.assertIn(date, proc.stdout)
+        for date in dates[14:]:
+            self.assertNotIn(date, proc.stdout)
+        self.assertIn("my-app: Did the thing", proc.stdout)
+        self.assertIn("2 more not shown", proc.stdout)
+        self.assertIn("/worklog:list --all", proc.stdout)
+
+    def test_list_all_shows_every_date(self):
+        base = datetime.date(2026, 9, 4)
+        dates = [(base - datetime.timedelta(days=i)).isoformat() for i in range(16)]
+        for date in dates:
+            self._write_note(date)
+
+        proc = run_cli(["list", "--all"], {"CLAUDE_PLUGIN_DATA": self.tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        for date in dates:
+            self.assertIn(date, proc.stdout)
+        self.assertNotIn("more not shown", proc.stdout)
+
     def test_search_with_no_index_reports_no_matches(self):
         proc = run_cli(["search", "nothing", "here"], {"CLAUDE_PLUGIN_DATA": self.tmp})
         self.assertEqual(proc.returncode, 0, proc.stderr)
