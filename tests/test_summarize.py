@@ -324,6 +324,33 @@ class GitInfoTest(unittest.TestCase):
         self.assertEqual(gaps, [])
         self.assertTrue(any("did the thing" in c for c in commits))
 
+    def test_author_email_is_not_matched_as_a_regex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["GIT_AUTHOR_DATE"] = "2026-08-29T12:00:00"
+            env["GIT_COMMITTER_DATE"] = "2026-08-29T12:00:00"
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            subprocess.run(["git", "config", "user.email", "a.b@example.com"], cwd=tmp, check=True)
+            subprocess.run(["git", "config", "user.name", "Tester"], cwd=tmp, check=True)
+
+            def commit_as(email, message):
+                commit_env = dict(env, GIT_AUTHOR_EMAIL=email, GIT_COMMITTER_EMAIL=email)
+                subprocess.run(
+                    ["git", "commit", "--allow-empty", "-q", "-m", message],
+                    cwd=tmp,
+                    env=commit_env,
+                    check=True,
+                )
+
+            # unescaped, "a.b@example.com" as a regex would also match this
+            commit_as("aXb@example.com", "someone else's commit")
+            commit_as("a.b@example.com", "my own commit")
+
+            commits, gaps = git_info.get_commits_for_date(tmp, "2026-08-29")
+        self.assertEqual(gaps, [])
+        self.assertTrue(any("my own commit" in c for c in commits))
+        self.assertFalse(any("someone else's commit" in c for c in commits))
+
 
 if __name__ == "__main__":
     unittest.main()
