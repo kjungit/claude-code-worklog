@@ -147,14 +147,17 @@ def summarize_session(date, session_id):
     project_path = live_for_date[0].get("project_path")
     commits, git_gaps = get_commits_for_date(project_path, date)
 
-    input_tokens = sum((r.get("usage") or {}).get("input_tokens", 0) for r in live_for_date)
-    output_tokens = sum((r.get("usage") or {}).get("output_tokens", 0) for r in live_for_date)
-    turns = sum(1 for r in live_for_date if r.get("usage"))
+    usage_records = [r for r in live_for_date if r.get("type") == "usage"]
+    input_tokens = sum((r.get("usage") or {}).get("input_tokens", 0) for r in usage_records)
+    output_tokens = sum((r.get("usage") or {}).get("output_tokens", 0) for r in usage_records)
+    turns = len(usage_records)
 
     payload = {
         "session_id": session_id,
         "project": project,
-        "records": [{k: v for k, v in r.items() if k != "usage"} for r in live_for_date],
+        "records": [
+            {k: v for k, v in r.items() if k != "usage"} for r in live_for_date if r.get("type") != "usage"
+        ],
         "abandoned_attempts": abandoned_for_date,
         "git_commits": commits,
     }

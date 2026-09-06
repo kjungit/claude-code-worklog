@@ -189,7 +189,8 @@ class OnStopCaptureTest(TempDataDir):
         """Defect 1 (docs 22.1): Stop hook must capture everything; DAG filtering happens later."""
         self._capture("rewind_session.jsonl", "sess-rewind")
         records = self._read_captured("2026-08-29", "sess-rewind")
-        uuids = {r["uuid"] for r in records}
+        # usage records deliberately carry no uuid (they sit outside the DAG)
+        uuids = {r["uuid"] for r in records if r["uuid"] is not None}
         self.assertEqual(uuids, {"r1", "r2", "r3"})
 
     def test_shrunk_transcript_recovers_instead_of_stalling_forever(self):
@@ -246,8 +247,8 @@ class HookFeedbackLoopTest(TempDataDir):
         with open(path, encoding="utf-8") as fh:
             records = [json.loads(line) for line in fh if line.strip()]
 
-        self.assertEqual(len(records), 2)
-        self.assertEqual({r["type"] for r in records}, {"prompt", "plan"})
+        self.assertEqual(len(records), 3)
+        self.assertEqual({r["type"] for r in records}, {"prompt", "plan", "usage"})
 
 
 class CheckAndSummarizeTest(TempDataDir):

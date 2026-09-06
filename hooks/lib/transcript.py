@@ -8,7 +8,7 @@ import json
 import re
 from datetime import datetime
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # Line types we ever turn into worklog raw material. Everything else
 # (hook attachments, mode/permission/system bookkeeping lines, etc.) is
@@ -159,13 +159,26 @@ def classify_and_extract(obj, tz=None):
 
     elif line_type == "assistant":
         usage = message.get("usage")
+        # One usage record per assistant transcript line, unconditionally -- most
+        # turns are plain text with no tool_use block at all, and those turns'
+        # usage was previously dropped entirely. Deliberately given no uuid/
+        # parentUuid so reconstruct_live_chain never places it in the DAG: token
+        # spend should count a turn whether its content ends up live or
+        # abandoned, and giving it the line's real parentUuid would wrongly
+        # turn every text-only reply into a DAG leaf hanging off an
+        # intermediate user turn (e.g. a tool_result-only message) that never
+        # got its own record, breaking reachability for real content after it.
+        usage_record = _base_record(obj, "usage", "", usage=usage, tz=tz)
+        usage_record["uuid"] = None
+        usage_record["parentUuid"] = None
+        records.append(usage_record)
         for block in _as_blocks(content):
             if block.get("type") != "tool_use":
                 continue
             name = block.get("name")
             tool_input = block.get("input") or {}
             if name == "ExitPlanMode":
-                records.append(_base_record(obj, "plan", tool_input.get("plan", ""), usage=usage, tz=tz))
+                records.append(_base_record(obj, "plan", tool_input.get("plan", ""), tz=tz))
             elif name in FILE_TOOL_NAMES:
                 file_path = tool_input.get("file_path")
                 records.append(
@@ -174,7 +187,6 @@ def classify_and_extract(obj, tz=None):
                         "file_change",
                         name,
                         files_changed=[file_path] if file_path else [],
-                        usage=usage,
                         tz=tz,
                     )
                 )
