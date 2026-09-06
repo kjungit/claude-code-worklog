@@ -193,6 +193,34 @@ class OnStopCaptureTest(TempDataDir):
         uuids = {r["uuid"] for r in records if r["uuid"] is not None}
         self.assertEqual(uuids, {"r1", "r2", "r3"})
 
+    def test_unicode_line_separator_inside_json_string_is_not_split(self):
+        """A raw U+2028 inside a JSON string value is valid JSON but would be
+        treated as a line break by str.splitlines(), corrupting the JSONL
+        line boundary and silently losing the record."""
+        text_with_u2028 = "before after"
+        line = json.dumps(
+            {
+                "type": "user",
+                "uuid": "u1",
+                "parentUuid": None,
+                "timestamp": "2026-08-29T10:00:00+09:00",
+                "cwd": "/tmp/my-app",
+                "message": {"content": text_with_u2028},
+            },
+            ensure_ascii=False,
+        )
+        transcript_path = os.path.join(self.tmp, "u2028_session.jsonl")
+        with open(transcript_path, "w", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
+        payload = {"session_id": "sess-u2028", "transcript_path": transcript_path}
+        proc = run_hook(ON_STOP, payload, self.data_env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        records = self._read_captured("2026-08-29", "sess-u2028")
+        prompts = [r["content"] for r in records if r["type"] == "prompt"]
+        self.assertIn(text_with_u2028, prompts)
+
     def test_shrunk_transcript_recovers_instead_of_stalling_forever(self):
         """If the transcript file ever becomes smaller than the stored cursor
         (truncated/recreated for any reason), the old cursor is stale. Without
