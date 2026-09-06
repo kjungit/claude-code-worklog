@@ -161,6 +161,22 @@ class DebugLogRotationTest(TempDataDir):
     def test_tail_returns_empty_list_when_no_log(self):
         self.assertEqual(debug_log.tail(10), [])
 
+    def test_invalid_utf8_tail_does_not_crash_logging(self):
+        """A torn multi-byte UTF-8 sequence (e.g. from concurrent hook
+        writes interleaving mid-character) must not turn into an uncaught
+        UnicodeDecodeError -- logging must never be the reason a hook
+        fails."""
+        path = paths.debug_log_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(b"[2026-01-01T00:00:00] earlier line\n\xff\xfe")
+
+        debug_log.log("new message")  # must not raise
+
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+        self.assertIn("new message", content)
+
 
 def run_cli(args, env_overrides):
     env = dict(os.environ)
