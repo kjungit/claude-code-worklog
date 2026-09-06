@@ -69,22 +69,50 @@ def find_unsummarized_dates():
     return dates
 
 
+def _create_lock_file(path):
+    """Atomically create the lock file, failing if it already exists.
+
+    O_CREAT|O_EXCL makes the check-and-create a single kernel operation,
+    unlike a separate os.path.exists() + open(path, "w") which lets two
+    processes both see "no lock" and both proceed.
+    """
+    payload = json.dumps({"pid": os.getpid(), "started_at": time.time()}).encode("utf-8")
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+
+
 def acquire_lock():
     """A second SessionStart in another terminal must not summarize the same day twice."""
     path = lock_path()
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as fh:
-                info = json.load(fh)
-            age = time.time() - info.get("started_at", 0)
-            if age < STALE_LOCK_SECONDS:
-                return False
-        except (ValueError, OSError):
-            pass  # unreadable lock -- treat it as stale and take over
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"pid": os.getpid(), "started_at": time.time()}, fh)
-    return True
+
+    try:
+        _create_lock_file(path)
+        return True
+    except FileExistsError:
+        pass
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            info = json.load(fh)
+        age = time.time() - info.get("started_at", 0)
+        if age < STALE_LOCK_SECONDS:
+            return False
+    except (ValueError, OSError):
+        pass  # unreadable lock -- treat it as stale and take over
+
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    try:
+        _create_lock_file(path)
+        return True
+    except FileExistsError:
+        return False  # another process took it over between our remove and create
 
 
 def release_lock():

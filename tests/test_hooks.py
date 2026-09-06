@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -378,6 +379,24 @@ class CheckAndSummarizeUnitTest(TempDataDir):
         self.assertFalse(check_and_summarize.acquire_lock())
         check_and_summarize.release_lock()
         self.assertTrue(check_and_summarize.acquire_lock())
+
+    def test_concurrent_acquire_with_no_existing_lock_only_one_winner(self):
+        """Two SessionStart hooks firing at nearly the same instant, with no
+        lock file yet, must not both believe they hold it (TOCTOU race)."""
+        results = []
+        barrier = threading.Barrier(2)
+
+        def attempt():
+            barrier.wait()
+            results.append(check_and_summarize.acquire_lock())
+
+        threads = [threading.Thread(target=attempt) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(sorted(results), [False, True])
 
 
 if __name__ == "__main__":
