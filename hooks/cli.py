@@ -51,7 +51,11 @@ def cmd_search(args):
     if not query.strip():
         print("Usage: /worklog:search <keyword>")
         return
-    results = search_index.search(query, limit=args.limit)
+    try:
+        results = search_index.search(query, limit=args.limit)
+    except Exception as exc:
+        print('Could not search for "%s" -- the query syntax looks invalid (%s).' % (query, exc))
+        return
     if not results:
         print('No matches for "%s".' % query)
         return

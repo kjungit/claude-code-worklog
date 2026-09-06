@@ -80,6 +80,13 @@ class SearchIndexTest(TempDataDir):
     def test_rebuild_is_safe_with_no_data_at_all(self):
         self.assertEqual(search_index.rebuild(), 0)
 
+    def test_syntax_error_query_fails_fast_without_retrying(self):
+        search_index.upsert_summary("2026-08-29", "sess-1", SAMPLE_SUMMARY)
+        with mock.patch("search_index.time.sleep") as sleep:
+            with self.assertRaises(Exception):
+                search_index.search('"unbalanced')
+        sleep.assert_not_called()
+
 
 class ArchiveTest(TempDataDir):
     def _make_date_dir(self, date_str):
@@ -219,6 +226,12 @@ class CliSmokeTest(TempDataDir):
         proc = run_cli(["search", "nothing", "here"], {"CLAUDE_PLUGIN_DATA": self.tmp})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("No matches", proc.stdout)
+
+    def test_search_with_invalid_syntax_reports_a_friendly_message(self):
+        proc = run_cli(["search", '"unbalanced'], {"CLAUDE_PLUGIN_DATA": self.tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("query syntax looks invalid", proc.stdout)
+        self.assertNotIn("Traceback", proc.stdout)
 
     def test_archive_with_nothing_to_archive(self):
         proc = run_cli(["archive", "180"], {"CLAUDE_PLUGIN_DATA": self.tmp})

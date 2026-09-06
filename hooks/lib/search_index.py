@@ -36,6 +36,22 @@ def _ensure_schema(conn):
     )
 
 
+_TRANSIENT_MESSAGES = ("database is locked", "database is busy")
+
+
+def _is_transient(exc):
+    """Only WAL lock contention is worth retrying. An invalid FTS5 query
+    (unbalanced quotes, a leading '-', a bare operator, ...) also raises
+    sqlite3.OperationalError, but with a variety of messages ("fts5: syntax
+    error...", "unterminated string", "no such column: ...") and retrying it
+    is pointless -- the same query will never succeed. Allowlisting the
+    handful of known lock-contention messages is more robust than trying to
+    enumerate every possible query-error phrasing.
+    """
+    msg = str(exc).lower()
+    return any(m in msg for m in _TRANSIENT_MESSAGES)
+
+
 def _with_retry(fn):
     delay = RETRY_BASE_DELAY
     last_exc = None
@@ -43,6 +59,8 @@ def _with_retry(fn):
         try:
             return fn()
         except sqlite3.OperationalError as exc:
+            if not _is_transient(exc):
+                raise
             last_exc = exc
             time.sleep(delay)
             delay *= 2
