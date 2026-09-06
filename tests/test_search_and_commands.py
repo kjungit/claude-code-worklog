@@ -116,6 +116,24 @@ class ArchiveTest(TempDataDir):
         self.assertEqual(first, [old_date])
         self.assertEqual(second, [])
 
+    def test_leftover_tmp_file_from_a_killed_write_does_not_block_a_fresh_archive(self):
+        old_date = (datetime.date.today() - datetime.timedelta(days=200)).isoformat()
+        self._make_date_dir(old_date)
+
+        archive_root = os.path.join(self.tmp, "archive")
+        os.makedirs(archive_root, exist_ok=True)
+        stray_tmp = os.path.join(archive_root, "%s.tar.gz.tmp-999999" % old_date)
+        with open(stray_tmp, "w", encoding="utf-8") as fh:
+            fh.write("truncated, from a process killed mid-write")
+
+        archived = archive_module.archive_older_than(180)
+
+        self.assertEqual(archived, [old_date])
+        tar_path = os.path.join(archive_root, "%s.tar.gz" % old_date)
+        with tarfile.open(tar_path) as tar:
+            self.assertIn("%s/sess.jsonl" % old_date, tar.getnames())
+        self.assertTrue(os.path.exists(stray_tmp))  # orphaned, not cleaned up, but also not mistaken for done
+
     def test_configured_days_env_var_used_when_no_explicit_arg(self):
         recent_date = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
         self._make_date_dir(recent_date)
