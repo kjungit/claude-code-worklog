@@ -13,7 +13,7 @@ import os
 
 import debug_log
 import search_index
-from atomic import read_json, write_json_atomic
+from atomic import read_json, write_json_atomic, write_text_atomic
 from claude_invoke import ClaudeInvokeError, invoke_claude, strip_code_fence
 from git_info import get_commits_for_date
 from paths import data_dir, note_path, notes_dir, raw_session_dir
@@ -262,8 +262,7 @@ def summarize_date(date):
     )
 
     os.makedirs(notes_dir(), exist_ok=True)
-    with open(note_path(date), "w", encoding="utf-8") as fh:
-        fh.write(content)
+    write_text_atomic(note_path(date), content)
 
     for summary in summaries:
         try:

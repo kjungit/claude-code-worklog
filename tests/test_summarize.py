@@ -20,6 +20,7 @@ from unittest import mock
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "hooks", "lib"))
 
+import atomic  # noqa: E402
 import claude_invoke  # noqa: E402
 import git_info  # noqa: E402
 import paths  # noqa: E402
@@ -87,6 +88,19 @@ VALID_MAP_JSON = json.dumps(
         "data_gaps": [],
     }
 )
+
+
+class AtomicTextWriteTest(unittest.TestCase):
+    def test_write_then_read_back_leaves_no_tmp_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "notes", "2026-08-29.md")
+            atomic.write_text_atomic(path, "hello world")
+
+            with open(path, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "hello world")
+
+            leftovers = [n for n in os.listdir(os.path.dirname(path)) if ".tmp-" in n]
+            self.assertEqual(leftovers, [])
 
 
 class ParseMapOutputTest(unittest.TestCase):
