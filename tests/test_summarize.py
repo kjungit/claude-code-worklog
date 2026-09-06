@@ -156,6 +156,27 @@ class SummarizeSessionCacheTest(TempDataDir):
             result = summarize.summarize_session("2026-08-29", "sess-1")
         self.assertEqual(result["title"], "Fixed the bug")
 
+    def test_cache_invalidated_by_a_later_shard_of_the_same_session_on_another_date(self):
+        """A session spanning midnight: day 1's cache must be invalidated by a
+        NEW fragment landing in day 2's folder, since reconstruct_live_chain
+        reconsiders live-vs-abandoned across the whole session, not just one
+        date's shard."""
+        self.write_capture_record("2026-08-29", "sess-1", prompt_record("sess-1", "2026-08-29"))
+        summary_path = os.path.join(paths.raw_session_dir("2026-08-29"), "sess-1.summary.json")
+        with open(summary_path, "w", encoding="utf-8") as fh:
+            json.dump({"title": "cached"}, fh)
+        os.utime(summary_path, None)  # newer than day 1's shard
+
+        # a day-2 fragment for the SAME session appears later
+        self.write_capture_record("2026-08-30", "sess-1", prompt_record("sess-1", "2026-08-30"))
+        day2_shard = os.path.join(paths.raw_session_dir("2026-08-30"), "sess-1.jsonl")
+        newer = os.path.getmtime(summary_path) + 10
+        os.utime(day2_shard, (newer, newer))
+
+        with mock.patch("summarize.invoke_claude", return_value=VALID_MAP_JSON):
+            result = summarize.summarize_session("2026-08-29", "sess-1")
+        self.assertEqual(result["title"], "Fixed the bug")  # recomputed, not the stale "cached" value
+
 
 class SummarizeSessionMapTest(TempDataDir):
     def test_successful_map_writes_cache_with_metrics_and_commits(self):

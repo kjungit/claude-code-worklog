@@ -369,6 +369,35 @@ class CheckAndSummarizeUnitTest(TempDataDir):
 
         self.assertEqual(check_and_summarize.find_unsummarized_dates(), [])
 
+    def test_summarized_date_reconsidered_when_same_session_gets_a_later_shard_elsewhere(self):
+        """A session split across dates: a NEW fragment landing in a later
+        date's folder must invalidate an EARLIER, already-summarized date's
+        note too, since reconstruct_live_chain reconsiders the whole session
+        (not just one date's shard) when deciding live vs. abandoned."""
+        data_root = os.path.join(self.tmp, "data")
+        old_dir = os.path.join(data_root, "2026-08-27")
+        new_dir = os.path.join(data_root, "2026-08-28")
+        os.makedirs(old_dir)
+        os.makedirs(new_dir)
+        os.makedirs(os.path.join(self.tmp, "notes"))
+
+        old_shard = os.path.join(old_dir, "sess-cross.jsonl")
+        with open(old_shard, "w", encoding="utf-8") as fh:
+            fh.write('{"type": "prompt"}\n')
+
+        note = os.path.join(self.tmp, "notes", "2026-08-27.md")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("already done")
+        note_mtime = os.path.getmtime(note)
+
+        # same session_id, a later fragment lands in the NEXT date's folder
+        new_shard = os.path.join(new_dir, "sess-cross.jsonl")
+        with open(new_shard, "w", encoding="utf-8") as fh:
+            fh.write('{"type": "prompt"}\n')
+        os.utime(new_shard, (note_mtime + 10, note_mtime + 10))
+
+        self.assertIn("2026-08-27", check_and_summarize.find_unsummarized_dates())
+
     def test_stale_lock_is_overridden(self):
         with open(os.path.join(self.tmp, ".lock"), "w", encoding="utf-8") as fh:
             json.dump({"pid": 999999, "started_at": 0}, fh)  # epoch -- ancient, must be treated as stale

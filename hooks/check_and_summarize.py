@@ -31,20 +31,32 @@ def _is_up_to_date(date_name, date_dir):
     lands after the day was already summarized, the note is now stale and
     needs to be regenerated, the same way a session's own *.summary.json
     cache is invalidated by a newer jsonl (see summarize._cache_valid).
+
+    A session split across dates has this same gap one level up: a fragment
+    landing in a *different* date folder can change what's true for THIS
+    date's content (reconstruct_live_chain reconsiders live-vs-abandoned
+    across the whole session), so each session touching this date must also
+    be checked against its shards in every other date folder, not just this
+    one.
     """
     note = note_path(date_name)
     if not os.path.exists(note):
         return False
     note_mtime = os.path.getmtime(note)
+    root = os.path.join(data_dir(), "data")
     for name in os.listdir(date_dir):
         if not name.endswith(".jsonl"):
             continue
-        session_path = os.path.join(date_dir, name)
-        try:
-            if os.path.getmtime(session_path) > note_mtime:
-                return False
-        except OSError:
-            continue
+        session_id = name[: -len(".jsonl")]
+        for other_date in os.listdir(root):
+            shard = os.path.join(root, other_date, "%s.jsonl" % session_id)
+            if not os.path.isfile(shard):
+                continue
+            try:
+                if os.path.getmtime(shard) > note_mtime:
+                    return False
+            except OSError:
+                continue
     return True
 
 
