@@ -2,6 +2,12 @@
 
 Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `3`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
 
+## 2.0.0
+
+Migration needed: no runtime impact, version-only correction.
+
+- 1.0.9 changed `schema_version` 2 -> 3 by removing the `usage` field from `plan`/`file_change` records (moved to a new `usage` record type). Per this project's own versioning rule (design doc 19.2), a `schema_version` change that isn't purely additive -- a field rename or removal -- requires a MAJOR bump of `plugin.json`, not a patch release. This release corrects that: no code changes from 1.0.9, version only
+
 ## 1.0.9
 
 Migration needed: no, but see the first item -- already-captured raw session data predating this release won't retroactively gain accurate token metrics if it's ever reprocessed.
