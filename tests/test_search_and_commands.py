@@ -80,6 +80,13 @@ class SearchIndexTest(TempDataDir):
     def test_rebuild_is_safe_with_no_data_at_all(self):
         self.assertEqual(search_index.rebuild(), 0)
 
+    def test_syntax_error_query_fails_fast_without_retrying(self):
+        search_index.upsert_summary("2026-08-29", "sess-1", SAMPLE_SUMMARY)
+        with mock.patch("search_index.time.sleep") as sleep:
+            with self.assertRaises(Exception):
+                search_index.search('"unbalanced')
+        sleep.assert_not_called()
+
 
 class ArchiveTest(TempDataDir):
     def _make_date_dir(self, date_str):
@@ -116,6 +123,24 @@ class ArchiveTest(TempDataDir):
         self.assertEqual(first, [old_date])
         self.assertEqual(second, [])
 
+    def test_leftover_tmp_file_from_a_killed_write_does_not_block_a_fresh_archive(self):
+        old_date = (datetime.date.today() - datetime.timedelta(days=200)).isoformat()
+        self._make_date_dir(old_date)
+
+        archive_root = os.path.join(self.tmp, "archive")
+        os.makedirs(archive_root, exist_ok=True)
+        stray_tmp = os.path.join(archive_root, "%s.tar.gz.tmp-999999" % old_date)
+        with open(stray_tmp, "w", encoding="utf-8") as fh:
+            fh.write("truncated, from a process killed mid-write")
+
+        archived = archive_module.archive_older_than(180)
+
+        self.assertEqual(archived, [old_date])
+        tar_path = os.path.join(archive_root, "%s.tar.gz" % old_date)
+        with tarfile.open(tar_path) as tar:
+            self.assertIn("%s/sess.jsonl" % old_date, tar.getnames())
+        self.assertTrue(os.path.exists(stray_tmp))  # orphaned, not cleaned up, but also not mistaken for done
+
     def test_configured_days_env_var_used_when_no_explicit_arg(self):
         recent_date = (datetime.date.today() - datetime.timedelta(days=10)).isoformat()
         self._make_date_dir(recent_date)
@@ -135,6 +160,22 @@ class DebugLogRotationTest(TempDataDir):
 
     def test_tail_returns_empty_list_when_no_log(self):
         self.assertEqual(debug_log.tail(10), [])
+
+    def test_invalid_utf8_tail_does_not_crash_logging(self):
+        """A torn multi-byte UTF-8 sequence (e.g. from concurrent hook
+        writes interleaving mid-character) must not turn into an uncaught
+        UnicodeDecodeError -- logging must never be the reason a hook
+        fails."""
+        path = paths.debug_log_path()
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "wb") as fh:
+            fh.write(b"[2026-01-01T00:00:00] earlier line\n\xff\xfe")
+
+        debug_log.log("new message")  # must not raise
+
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            content = fh.read()
+        self.assertIn("new message", content)
 
 
 def run_cli(args, env_overrides):
@@ -201,6 +242,12 @@ class CliSmokeTest(TempDataDir):
         proc = run_cli(["search", "nothing", "here"], {"CLAUDE_PLUGIN_DATA": self.tmp})
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn("No matches", proc.stdout)
+
+    def test_search_with_invalid_syntax_reports_a_friendly_message(self):
+        proc = run_cli(["search", '"unbalanced'], {"CLAUDE_PLUGIN_DATA": self.tmp})
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+        self.assertIn("query syntax looks invalid", proc.stdout)
+        self.assertNotIn("Traceback", proc.stdout)
 
     def test_archive_with_nothing_to_archive(self):
         proc = run_cli(["archive", "180"], {"CLAUDE_PLUGIN_DATA": self.tmp})

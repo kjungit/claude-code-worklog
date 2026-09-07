@@ -49,7 +49,12 @@ def read_new_lines(transcript_path, offset):
         return [], offset
     complete = chunk[: last_newline + 1]
     new_offset = offset + len(complete)
-    lines = complete.decode("utf-8", errors="replace").splitlines()
+    # str.splitlines() also breaks on Unicode line separators (U+2028,
+    # U+2029, U+0085, \v, \f), any of which can appear raw inside a JSON
+    # string value and is still valid JSON -- splitting there would cut a
+    # single JSONL line into two invalid fragments. A trailing \r from
+    # CRLF is handled by parse_jsonl_lines' raw.strip().
+    lines = complete.decode("utf-8", errors="replace").split("\n")
     return lines, new_offset
 
 

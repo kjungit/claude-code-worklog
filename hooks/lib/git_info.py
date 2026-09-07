@@ -9,6 +9,7 @@ principle).
 """
 
 import datetime
+import re
 import subprocess
 
 
@@ -56,7 +57,10 @@ def get_commits_for_date(project_path, date_str):
         "--pretty=format:%h %s",
     ]
     if email:
-        args.append("--author=%s" % email)
+        # --author's value is matched as a regex, not a literal string -- an
+        # unescaped email (almost always containing '.', which matches any
+        # character) can over-match and pull in another contributor's commits.
+        args.append("--author=%s" % re.escape(email))
 
     try:
         proc = _run_git(args, project_path)

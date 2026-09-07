@@ -1,6 +1,20 @@
 # Changelog
 
-Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `2`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
+Versions are semver (`plugin.json`'s `version`), independent of `schema_version` (the data record format, currently `3`). A migration note is called out explicitly whenever a release changes `schema_version` in a way that isn't purely additive.
+
+## 1.0.9
+
+Migration needed: no, but see the first item -- already-captured raw session data predating this release won't retroactively gain accurate token metrics if it's ever reprocessed.
+
+- Token usage and turn counts were being lost or double-counted: `usage` was only attached to `plan`/`file_change` records, so a text-only assistant turn (most turns) had its usage silently dropped entirely, while a turn with 2+ matching tool_use blocks had its usage counted once per block. Every assistant turn now produces its own `usage` record, counted exactly once, independent of what tool_use blocks (if any) it also contains. `schema_version` bumped 2 -> 3 for this record-shape change
+- A raw transcript chunk could be corrupted while splitting it into lines: `str.splitlines()` also breaks on Unicode line separators (U+2028, U+2029, U+0085, `\v`, `\f`), which can appear raw inside a JSON string value and are valid JSON. Switched to `.split("\n")`, the actual JSONL line delimiter
+- `git log --author` matches its value as a regex, not a literal string. An unescaped email (almost always containing `.`, which matches any character) could over-match and pull another contributor's commits into the current user's worklog. The email is now escaped before being passed to `--author`
+- Closed a race in the summarization lock: two `SessionStart` hooks firing at nearly the same instant, with no lock file yet, could both believe they'd acquired it and both summarize the same date. Lock creation is now atomic (`O_CREAT|O_EXCL`)
+- `notes/{date}.md` is now written atomically (temp file + rename), like every other persisted file in this plugin, instead of a plain write that a crash (or the lock race above) could leave truncated or interleaved
+- A session that spans midnight could permanently freeze a stale live/abandoned classification for its earlier day: the cache (and the outer "is this date done" check) only looked at that day's own captured shard, not the session's other shards across date folders, so a later-day fragment changing what's actually true for the earlier day never triggered a recompute. Both checks now consider all of a session's shards
+- Archive files (`archive/{date}.tar.gz`) are now written atomically; previously a process killed mid-write left a permanently corrupt, permanently-skipped archive at that path (original data was never at risk either way)
+- An invalid `/worklog:search` query (unbalanced quotes, a leading `-`, a bare operator) crashed with a raw traceback -- it was being retried 3 times as if it were lock contention, then re-raised uncaught. It now fails fast with a friendly message
+- `debug_log`'s rotation could itself raise on a torn multi-byte UTF-8 sequence from concurrent hook writes, defeating its own "logging must never be the reason a hook fails" guarantee. It now decodes tolerantly
 
 ## 1.0.8
 

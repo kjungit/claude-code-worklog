@@ -31,20 +31,32 @@ def _is_up_to_date(date_name, date_dir):
     lands after the day was already summarized, the note is now stale and
     needs to be regenerated, the same way a session's own *.summary.json
     cache is invalidated by a newer jsonl (see summarize._cache_valid).
+
+    A session split across dates has this same gap one level up: a fragment
+    landing in a *different* date folder can change what's true for THIS
+    date's content (reconstruct_live_chain reconsiders live-vs-abandoned
+    across the whole session), so each session touching this date must also
+    be checked against its shards in every other date folder, not just this
+    one.
     """
     note = note_path(date_name)
     if not os.path.exists(note):
         return False
     note_mtime = os.path.getmtime(note)
+    root = os.path.join(data_dir(), "data")
     for name in os.listdir(date_dir):
         if not name.endswith(".jsonl"):
             continue
-        session_path = os.path.join(date_dir, name)
-        try:
-            if os.path.getmtime(session_path) > note_mtime:
-                return False
-        except OSError:
-            continue
+        session_id = name[: -len(".jsonl")]
+        for other_date in os.listdir(root):
+            shard = os.path.join(root, other_date, "%s.jsonl" % session_id)
+            if not os.path.isfile(shard):
+                continue
+            try:
+                if os.path.getmtime(shard) > note_mtime:
+                    return False
+            except OSError:
+                continue
     return True
 
 
@@ -69,22 +81,50 @@ def find_unsummarized_dates():
     return dates
 
 
+def _create_lock_file(path):
+    """Atomically create the lock file, failing if it already exists.
+
+    O_CREAT|O_EXCL makes the check-and-create a single kernel operation,
+    unlike a separate os.path.exists() + open(path, "w") which lets two
+    processes both see "no lock" and both proceed.
+    """
+    payload = json.dumps({"pid": os.getpid(), "started_at": time.time()}).encode("utf-8")
+    fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    try:
+        os.write(fd, payload)
+    finally:
+        os.close(fd)
+
+
 def acquire_lock():
     """A second SessionStart in another terminal must not summarize the same day twice."""
     path = lock_path()
-    if os.path.exists(path):
-        try:
-            with open(path, encoding="utf-8") as fh:
-                info = json.load(fh)
-            age = time.time() - info.get("started_at", 0)
-            if age < STALE_LOCK_SECONDS:
-                return False
-        except (ValueError, OSError):
-            pass  # unreadable lock -- treat it as stale and take over
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    with open(path, "w", encoding="utf-8") as fh:
-        json.dump({"pid": os.getpid(), "started_at": time.time()}, fh)
-    return True
+
+    try:
+        _create_lock_file(path)
+        return True
+    except FileExistsError:
+        pass
+
+    try:
+        with open(path, encoding="utf-8") as fh:
+            info = json.load(fh)
+        age = time.time() - info.get("started_at", 0)
+        if age < STALE_LOCK_SECONDS:
+            return False
+    except (ValueError, OSError):
+        pass  # unreadable lock -- treat it as stale and take over
+
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    try:
+        _create_lock_file(path)
+        return True
+    except FileExistsError:
+        return False  # another process took it over between our remove and create
 
 
 def release_lock():

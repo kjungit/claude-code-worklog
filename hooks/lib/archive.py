@@ -53,8 +53,15 @@ def archive_older_than(days=None):
             continue
 
         os.makedirs(archive_root, exist_ok=True)
-        with tarfile.open(tar_path, "w:gz") as tar:
+        # Write to a temp path and rename into place only once the tarfile is
+        # fully and successfully closed -- otherwise a process killed
+        # mid-write leaves a truncated .tar.gz at the final path, which
+        # os.path.exists() above would then treat as "already archived"
+        # forever, permanently skipping this date.
+        tmp_tar_path = "%s.tmp-%d" % (tar_path, os.getpid())
+        with tarfile.open(tmp_tar_path, "w:gz") as tar:
             tar.add(date_dir, arcname=name)
+        os.replace(tmp_tar_path, tar_path)
         archived.append(name)
 
     return archived

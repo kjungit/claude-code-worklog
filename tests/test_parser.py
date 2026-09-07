@@ -90,6 +90,54 @@ class ClassificationTest(unittest.TestCase):
         self.assertEqual(r["uuid"], "uuid-1")
 
 
+class UsageRecordTest(unittest.TestCase):
+    def _assistant_obj(self, content, usage=None, uuid_="a1", parent="p1"):
+        return {
+            "type": "assistant",
+            "uuid": uuid_,
+            "parentUuid": parent,
+            "sessionId": "sess-usage",
+            "cwd": "/Users/x/dev/my-app",
+            "gitBranch": "main",
+            "timestamp": "2026-08-29T10:00:00+09:00",
+            "isSidechain": False,
+            "message": {"role": "assistant", "content": content, "usage": usage},
+        }
+
+    def test_text_only_turn_still_produces_a_usage_record(self):
+        obj = self._assistant_obj(
+            [{"type": "text", "text": "here's the answer"}],
+            usage={"input_tokens": 15000, "output_tokens": 800},
+        )
+        records = transcript.classify_and_extract(obj, tz=FIXED_TZ)
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]["type"], "usage")
+        self.assertEqual(records[0]["usage"], {"input_tokens": 15000, "output_tokens": 800})
+        # deliberately outside the DAG (docs: token spend counts regardless
+        # of whether the branch is later abandoned)
+        self.assertIsNone(records[0]["uuid"])
+        self.assertIsNone(records[0]["parentUuid"])
+
+    def test_multiple_tool_use_blocks_produce_one_usage_and_no_double_count(self):
+        obj = self._assistant_obj(
+            [
+                {"type": "tool_use", "id": "t1", "name": "Edit", "input": {"file_path": "a.py"}},
+                {"type": "tool_use", "id": "t2", "name": "Edit", "input": {"file_path": "b.py"}},
+            ],
+            usage={"input_tokens": 100, "output_tokens": 50},
+        )
+        records = transcript.classify_and_extract(obj, tz=FIXED_TZ)
+        by_type = {}
+        for r in records:
+            by_type.setdefault(r["type"], []).append(r)
+
+        self.assertEqual(len(by_type.get("usage", [])), 1)
+        self.assertEqual(by_type["usage"][0]["usage"], {"input_tokens": 100, "output_tokens": 50})
+        self.assertEqual(len(by_type.get("file_change", [])), 2)
+        for r in by_type["file_change"]:
+            self.assertNotIn("usage", r)
+
+
 class SecretRedactionTest(unittest.TestCase):
     def test_aws_key_redacted(self):
         text = "tried AKIAABCDEFGHIJKLMNOP and it didn't work"
@@ -117,7 +165,10 @@ class DagReconstructionTest(unittest.TestCase):
 
         abandoned_texts = [a["attempt"] for a in abandoned]
 
-        self.assertEqual(len(live), 2)  # prompt + the surviving file_change
+        # prompt + the surviving file_change + both attempts' usage records
+        # (usage records carry no uuid, so they're always live -- token spend
+        # counts whether a branch was kept or abandoned)
+        self.assertEqual(len(live), 4)
         self.assertEqual(len(abandoned), 1)
         self.assertEqual(abandoned_texts[0], "Write")
         # the surviving branch is the later one (approach B / uuid r3), not r2
@@ -138,7 +189,7 @@ class DagReconstructionTest(unittest.TestCase):
     def test_crosses_midnight_without_breaking_chain(self):
         records = records_for("midnight_session.jsonl")
         live, abandoned = transcript.reconstruct_live_chain(records)
-        self.assertEqual(len(live), 2)
+        self.assertEqual(len(live), 3)  # prompt + usage + file_change
         self.assertEqual(abandoned, [])
         dates = {r["date"] for r in live}
         self.assertEqual(dates, {"2026-08-29", "2026-08-30"})

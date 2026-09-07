@@ -20,6 +20,7 @@ from unittest import mock
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.join(REPO_ROOT, "hooks", "lib"))
 
+import atomic  # noqa: E402
 import claude_invoke  # noqa: E402
 import git_info  # noqa: E402
 import paths  # noqa: E402
@@ -58,6 +59,23 @@ def prompt_record(session_id, date, project="my-app", uuid_="u1", content="fix t
     }
 
 
+def usage_record(session_id, date, input_tokens=10, output_tokens=5):
+    return {
+        "schema_version": 3,
+        "uuid": None,
+        "parentUuid": None,
+        "date": date,
+        "session_id": session_id,
+        "project": "my-app",
+        "project_path": "/tmp/does-not-need-to-exist",
+        "git_branch": "main",
+        "timestamp": "%sT10:00:05+09:00" % date,
+        "type": "usage",
+        "content": "",
+        "usage": {"input_tokens": input_tokens, "output_tokens": output_tokens},
+    }
+
+
 VALID_MAP_JSON = json.dumps(
     {
         "title": "Fixed the bug",
@@ -70,6 +88,19 @@ VALID_MAP_JSON = json.dumps(
         "data_gaps": [],
     }
 )
+
+
+class AtomicTextWriteTest(unittest.TestCase):
+    def test_write_then_read_back_leaves_no_tmp_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = os.path.join(tmp, "notes", "2026-08-29.md")
+            atomic.write_text_atomic(path, "hello world")
+
+            with open(path, encoding="utf-8") as fh:
+                self.assertEqual(fh.read(), "hello world")
+
+            leftovers = [n for n in os.listdir(os.path.dirname(path)) if ".tmp-" in n]
+            self.assertEqual(leftovers, [])
 
 
 class ParseMapOutputTest(unittest.TestCase):
@@ -125,6 +156,27 @@ class SummarizeSessionCacheTest(TempDataDir):
             result = summarize.summarize_session("2026-08-29", "sess-1")
         self.assertEqual(result["title"], "Fixed the bug")
 
+    def test_cache_invalidated_by_a_later_shard_of_the_same_session_on_another_date(self):
+        """A session spanning midnight: day 1's cache must be invalidated by a
+        NEW fragment landing in day 2's folder, since reconstruct_live_chain
+        reconsiders live-vs-abandoned across the whole session, not just one
+        date's shard."""
+        self.write_capture_record("2026-08-29", "sess-1", prompt_record("sess-1", "2026-08-29"))
+        summary_path = os.path.join(paths.raw_session_dir("2026-08-29"), "sess-1.summary.json")
+        with open(summary_path, "w", encoding="utf-8") as fh:
+            json.dump({"title": "cached"}, fh)
+        os.utime(summary_path, None)  # newer than day 1's shard
+
+        # a day-2 fragment for the SAME session appears later
+        self.write_capture_record("2026-08-30", "sess-1", prompt_record("sess-1", "2026-08-30"))
+        day2_shard = os.path.join(paths.raw_session_dir("2026-08-30"), "sess-1.jsonl")
+        newer = os.path.getmtime(summary_path) + 10
+        os.utime(day2_shard, (newer, newer))
+
+        with mock.patch("summarize.invoke_claude", return_value=VALID_MAP_JSON):
+            result = summarize.summarize_session("2026-08-29", "sess-1")
+        self.assertEqual(result["title"], "Fixed the bug")  # recomputed, not the stale "cached" value
+
 
 class SummarizeSessionMapTest(TempDataDir):
     def test_successful_map_writes_cache_with_metrics_and_commits(self):
@@ -149,6 +201,30 @@ class SummarizeSessionMapTest(TempDataDir):
         ):
             result = summarize.summarize_session("2026-08-29", "sess-1")
         self.assertIn("git 저장소 아님 — 커밋 이력 확인 불가", result["data_gaps"])
+
+    def test_usage_records_counted_once_and_excluded_from_map_prompt(self):
+        self.write_capture_record("2026-08-29", "sess-1", prompt_record("sess-1", "2026-08-29"))
+        # two assistant turns' worth of usage -- must sum, not double-count
+        self.write_capture_record(
+            "2026-08-29", "sess-1", usage_record("sess-1", "2026-08-29", input_tokens=15000, output_tokens=800)
+        )
+        self.write_capture_record(
+            "2026-08-29", "sess-1", usage_record("sess-1", "2026-08-29", input_tokens=20, output_tokens=10)
+        )
+
+        captured = {}
+
+        def fake_invoke(prompt, *args, **kwargs):
+            captured["prompt"] = prompt
+            return VALID_MAP_JSON
+
+        with mock.patch("summarize.invoke_claude", side_effect=fake_invoke), mock.patch(
+            "summarize.get_commits_for_date", return_value=([], [])
+        ):
+            result = summarize.summarize_session("2026-08-29", "sess-1")
+
+        self.assertEqual(result["metrics"], {"turns": 2, "input_tokens": 15020, "output_tokens": 810})
+        self.assertNotIn('"usage"', captured["prompt"])
 
     def test_no_live_records_for_date_returns_none(self):
         # nothing captured for this date at all
@@ -282,6 +358,33 @@ class GitInfoTest(unittest.TestCase):
             commits, gaps = git_info.get_commits_for_date(tmp, "2026-08-29")
         self.assertEqual(gaps, [])
         self.assertTrue(any("did the thing" in c for c in commits))
+
+    def test_author_email_is_not_matched_as_a_regex(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = dict(os.environ)
+            env["GIT_AUTHOR_DATE"] = "2026-08-29T12:00:00"
+            env["GIT_COMMITTER_DATE"] = "2026-08-29T12:00:00"
+            subprocess.run(["git", "init", "-q"], cwd=tmp, check=True)
+            subprocess.run(["git", "config", "user.email", "a.b@example.com"], cwd=tmp, check=True)
+            subprocess.run(["git", "config", "user.name", "Tester"], cwd=tmp, check=True)
+
+            def commit_as(email, message):
+                commit_env = dict(env, GIT_AUTHOR_EMAIL=email, GIT_COMMITTER_EMAIL=email)
+                subprocess.run(
+                    ["git", "commit", "--allow-empty", "-q", "-m", message],
+                    cwd=tmp,
+                    env=commit_env,
+                    check=True,
+                )
+
+            # unescaped, "a.b@example.com" as a regex would also match this
+            commit_as("aXb@example.com", "someone else's commit")
+            commit_as("a.b@example.com", "my own commit")
+
+            commits, gaps = git_info.get_commits_for_date(tmp, "2026-08-29")
+        self.assertEqual(gaps, [])
+        self.assertTrue(any("my own commit" in c for c in commits))
+        self.assertFalse(any("someone else's commit" in c for c in commits))
 
 
 if __name__ == "__main__":

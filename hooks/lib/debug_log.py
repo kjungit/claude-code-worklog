@@ -21,12 +21,15 @@ def log(message):
         with open(path, "a", encoding="utf-8") as fh:
             fh.write("[%s] %s\n" % (timestamp, message))
         _rotate(path)
-    except OSError:
+    except (OSError, ValueError):
         pass  # logging must never be the reason a hook fails
 
 
 def _rotate(path):
-    with open(path, encoding="utf-8") as fh:
+    # errors="replace": a torn multi-byte UTF-8 sequence from concurrent
+    # hook writes interleaving mid-character would otherwise raise
+    # UnicodeDecodeError here, which is a ValueError, not an OSError.
+    with open(path, encoding="utf-8", errors="replace") as fh:
         lines = fh.readlines()
     if len(lines) > MAX_LINES:
         with open(path, "w", encoding="utf-8") as fh:

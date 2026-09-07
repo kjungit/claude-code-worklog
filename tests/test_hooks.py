@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 import unittest
 from unittest import mock
 
@@ -189,8 +190,37 @@ class OnStopCaptureTest(TempDataDir):
         """Defect 1 (docs 22.1): Stop hook must capture everything; DAG filtering happens later."""
         self._capture("rewind_session.jsonl", "sess-rewind")
         records = self._read_captured("2026-08-29", "sess-rewind")
-        uuids = {r["uuid"] for r in records}
+        # usage records deliberately carry no uuid (they sit outside the DAG)
+        uuids = {r["uuid"] for r in records if r["uuid"] is not None}
         self.assertEqual(uuids, {"r1", "r2", "r3"})
+
+    def test_unicode_line_separator_inside_json_string_is_not_split(self):
+        """A raw U+2028 inside a JSON string value is valid JSON but would be
+        treated as a line break by str.splitlines(), corrupting the JSONL
+        line boundary and silently losing the record."""
+        text_with_u2028 = "before after"
+        line = json.dumps(
+            {
+                "type": "user",
+                "uuid": "u1",
+                "parentUuid": None,
+                "timestamp": "2026-08-29T10:00:00+09:00",
+                "cwd": "/tmp/my-app",
+                "message": {"content": text_with_u2028},
+            },
+            ensure_ascii=False,
+        )
+        transcript_path = os.path.join(self.tmp, "u2028_session.jsonl")
+        with open(transcript_path, "w", encoding="utf-8") as fh:
+            fh.write(line + "\n")
+
+        payload = {"session_id": "sess-u2028", "transcript_path": transcript_path}
+        proc = run_hook(ON_STOP, payload, self.data_env())
+        self.assertEqual(proc.returncode, 0, proc.stderr)
+
+        records = self._read_captured("2026-08-29", "sess-u2028")
+        prompts = [r["content"] for r in records if r["type"] == "prompt"]
+        self.assertIn(text_with_u2028, prompts)
 
     def test_shrunk_transcript_recovers_instead_of_stalling_forever(self):
         """If the transcript file ever becomes smaller than the stored cursor
@@ -246,8 +276,8 @@ class HookFeedbackLoopTest(TempDataDir):
         with open(path, encoding="utf-8") as fh:
             records = [json.loads(line) for line in fh if line.strip()]
 
-        self.assertEqual(len(records), 2)
-        self.assertEqual({r["type"] for r in records}, {"prompt", "plan"})
+        self.assertEqual(len(records), 3)
+        self.assertEqual({r["type"] for r in records}, {"prompt", "plan", "usage"})
 
 
 class CheckAndSummarizeTest(TempDataDir):
@@ -339,6 +369,35 @@ class CheckAndSummarizeUnitTest(TempDataDir):
 
         self.assertEqual(check_and_summarize.find_unsummarized_dates(), [])
 
+    def test_summarized_date_reconsidered_when_same_session_gets_a_later_shard_elsewhere(self):
+        """A session split across dates: a NEW fragment landing in a later
+        date's folder must invalidate an EARLIER, already-summarized date's
+        note too, since reconstruct_live_chain reconsiders the whole session
+        (not just one date's shard) when deciding live vs. abandoned."""
+        data_root = os.path.join(self.tmp, "data")
+        old_dir = os.path.join(data_root, "2026-08-27")
+        new_dir = os.path.join(data_root, "2026-08-28")
+        os.makedirs(old_dir)
+        os.makedirs(new_dir)
+        os.makedirs(os.path.join(self.tmp, "notes"))
+
+        old_shard = os.path.join(old_dir, "sess-cross.jsonl")
+        with open(old_shard, "w", encoding="utf-8") as fh:
+            fh.write('{"type": "prompt"}\n')
+
+        note = os.path.join(self.tmp, "notes", "2026-08-27.md")
+        with open(note, "w", encoding="utf-8") as fh:
+            fh.write("already done")
+        note_mtime = os.path.getmtime(note)
+
+        # same session_id, a later fragment lands in the NEXT date's folder
+        new_shard = os.path.join(new_dir, "sess-cross.jsonl")
+        with open(new_shard, "w", encoding="utf-8") as fh:
+            fh.write('{"type": "prompt"}\n')
+        os.utime(new_shard, (note_mtime + 10, note_mtime + 10))
+
+        self.assertIn("2026-08-27", check_and_summarize.find_unsummarized_dates())
+
     def test_stale_lock_is_overridden(self):
         with open(os.path.join(self.tmp, ".lock"), "w", encoding="utf-8") as fh:
             json.dump({"pid": 999999, "started_at": 0}, fh)  # epoch -- ancient, must be treated as stale
@@ -349,6 +408,24 @@ class CheckAndSummarizeUnitTest(TempDataDir):
         self.assertFalse(check_and_summarize.acquire_lock())
         check_and_summarize.release_lock()
         self.assertTrue(check_and_summarize.acquire_lock())
+
+    def test_concurrent_acquire_with_no_existing_lock_only_one_winner(self):
+        """Two SessionStart hooks firing at nearly the same instant, with no
+        lock file yet, must not both believe they hold it (TOCTOU race)."""
+        results = []
+        barrier = threading.Barrier(2)
+
+        def attempt():
+            barrier.wait()
+            results.append(check_and_summarize.acquire_lock())
+
+        threads = [threading.Thread(target=attempt) for _ in range(2)]
+        for t in threads:
+            t.start()
+        for t in threads:
+            t.join()
+
+        self.assertEqual(sorted(results), [False, True])
 
 
 if __name__ == "__main__":
